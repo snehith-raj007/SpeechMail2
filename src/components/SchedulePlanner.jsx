@@ -12,6 +12,7 @@ export function SchedulePlanner({
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [startTime, setStartTime] = useState('14:00');
   const [attendees, setAttendees] = useState('rajsrmap2@gmail.com');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const addOneHour = (timeStr) => {
     if (!timeStr) return '15:00';
@@ -39,9 +40,14 @@ export function SchedulePlanner({
     return url;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim()) {
+      alert('Please enter an event title!');
+      return;
+    }
+
+    setIsSubmitting(true);
 
     const newEvt = {
       title: title.trim(),
@@ -52,14 +58,16 @@ export function SchedulePlanner({
       description: 'Scheduled via SpeechMail AI Voice Planner'
     };
 
-    onAddEvent(newEvt);
-
-    // Open Google Calendar in new tab to add directly to Google Calendar grid
-    const gCalUrl = getGoogleCalendarUrl(newEvt);
-    window.open(gCalUrl, '_blank');
-
-    setTitle('');
-    setAttendees('rajsrmap2@gmail.com');
+    try {
+      // Direct one-click event save to Neon DB & Google Calendar Backend
+      await onAddEvent(newEvt);
+      setTitle('');
+      setAttendees('rajsrmap2@gmail.com');
+    } catch (err) {
+      alert('Error saving event: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -69,7 +77,7 @@ export function SchedulePlanner({
           <i class="fa-solid fa-calendar-days text-amber" style={{ fontSize: '1.3rem' }}></i>
           <div>
             <h2 style={{ fontSize: '1.35rem', margin: 0 }}>AI Schedule & Google Calendar Integration</h2>
-            <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Syncs directly with Google Calendar grid & Neon DB</span>
+            <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Syncs directly with Google Calendar & Neon DB</span>
           </div>
         </div>
 
@@ -145,7 +153,7 @@ export function SchedulePlanner({
                       rel="noopener noreferrer"
                       class="btn-pill-sm"
                       style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.4)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', padding: '6px 10px' }}
-                      title="Save to Google Calendar app"
+                      title="Open in Google Calendar web app"
                     >
                       <i class="fa-brands fa-google"></i> + Add to Google Calendar
                     </a>
@@ -214,7 +222,12 @@ export function SchedulePlanner({
               />
             </div>
 
-            <button type="submit" class="btn btn-accent-glow" style={{ width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 600, marginTop: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="submit"
+              class="btn btn-accent-glow"
+              disabled={isSubmitting}
+              style={{ width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 600, marginTop: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}
+            >
               <i class="fa-brands fa-google"></i> Save Event to Google Calendar & Neon DB
             </button>
           </form>
