@@ -161,6 +161,21 @@ export const api = {
     }
   },
 
+  // 7. AI Email Summarizer
+  summarizeEmail: async (emailData) => {
+    const res = await fetch(`${API_BASE}/summarize-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(emailData)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Failed to summarize email' }));
+      throw new Error(err.detail || 'Summarization failed');
+    }
+    return await res.json();
+  },
+
+
   // 5. Inbox Messages (Neon DB)
   fetchInbox: async () => {
     try {

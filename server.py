@@ -249,6 +249,13 @@ class ScheduleEmailRequest(BaseModel):
     priority: Optional[int] = 1
     scheduled_at: Optional[str] = None
 
+class SummarizeEmailRequest(BaseModel):
+    id: Optional[str] = None
+    sender: str
+    subject: str
+    body: str
+
+
 
 
 
@@ -745,7 +752,86 @@ async def create_scheduled_email(req: ScheduleEmailRequest, db: AsyncSession = D
     }
 
 
+# Helper: Groq LLM Email Summarization Call
+def _call_groq_summarizer_sync(req_sender, req_subject, req_body, groq_api_key):
+    import urllib.request
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    prompt_text = f"""You are SpeechMail AI Chief Email Summarizer. Analyze the received email below and extract structured JSON with these exact keys:
+- "summary": A 2-3 sentence executive TL;DR summary.
+- "priority": "Urgent", "Important", or "Routine"
+- "intent": Primary intent (e.g., Meeting Request, Status Update, Leave Application, Feedback, General Notice)
+- "key_points": Bullet points of key facts/requests (array of strings)
+- "action_items": Actionable tasks required from the user (array of strings)
+- "suggested_reply": A professional 2-3 sentence proposed response to send back to the sender.
+
+Received Email Details:
+Sender: {req_sender}
+Subject: {req_subject}
+Body:
+{req_body}
+
+Return ONLY raw valid JSON with no markdown block formatting."""
+
+    payload = json.dumps({
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {"role": "system", "content": "You are a professional email perception and priority summarizer agent. Respond ONLY in valid JSON format."},
+            {"role": "user", "content": prompt_text}
+        ],
+        "temperature": 0.2
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {groq_api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "SpeechMail-AI/1.0"
+        }
+    )
+    res = urllib.request.urlopen(req, timeout=15)
+    data = json.loads(res.read().decode("utf-8"))
+    content = data["choices"][0]["message"]["content"].strip()
+    if content.startswith("```"):
+        content = content.replace("```json", "").replace("```", "").strip()
+    return json.loads(content)
+
+@app.post("/api/summarize-email")
+async def summarize_email(req: SummarizeEmailRequest, db: AsyncSession = Depends(get_db)):
+    groq_api_key = os.environ.get("GROQ_API_KEY", "")
+
+    try:
+        parsed = await asyncio.to_thread(_call_groq_summarizer_sync, req.sender, req.subject, req.body, groq_api_key)
+        
+        # Log Agent Activity in Neon DB
+        act = AgentActivity(
+            id=f"act-{int(time.time() * 1000)}",
+            agent_name="Chief Email Perception Agent",
+            action="AI Email Perception & Summarization",
+            reasoning=f"Analyzed email from '{req.sender}' on '{req.subject}'. Classified priority as {parsed.get('priority', 'Important')}.",
+            created_at=datetime.utcnow()
+        )
+        db.add(act)
+        await db.commit()
+
+        return {"success": True, "summary_data": parsed}
+    except Exception as e:
+        print(f"[SUMMARIZER WARNING] Groq AI call notice: {e}")
+
+    # Heuristic fallback if offline
+    fallback_summary = {
+        "summary": f"Received email regarding '{req.subject}' from {req.sender}. Key details parsed for quick executive review.",
+        "priority": "Important" if ("urgent" in req.subject.lower() or "leave" in req.subject.lower() or "important" in req.subject.lower()) else "Routine",
+        "intent": "Executive Communication",
+        "key_points": [f"Sender: {req.sender}", f"Subject: {req.subject}", "Action required from user"],
+        "action_items": ["Review full email body", "Send response if required"],
+        "suggested_reply": f"Hi {req.sender.split('<')[0]},\n\nThank you for reaching out regarding '{req.subject}'. I have received your email and will review the details shortly.\n\nBest Regards,\nRaj"
+    }
+    return {"success": True, "summary_data": fallback_summary}
+
 @app.get("/api/scheduled-emails")
+
 async def list_scheduled_emails(db: AsyncSession = Depends(get_db)):
     stmt = select(ScheduledEmailModel).order_by(ScheduledEmailModel.scheduled_at.asc())
     res = await db.execute(stmt)

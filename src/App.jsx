@@ -18,7 +18,9 @@ import { ContextExtraction } from './components/ContextExtraction.jsx';
 import { GeneratedEmail } from './components/GeneratedEmail.jsx';
 import { ManualComposer } from './components/ManualComposer.jsx';
 import { ScheduledEmailsList } from './components/ScheduledEmailsList.jsx';
+import { InboxSummarizer } from './components/InboxSummarizer.jsx';
 import { GmailInbox } from './components/GmailInbox.jsx';
+
 
 
 import { SchedulePlanner } from './components/SchedulePlanner.jsx';
@@ -403,7 +405,14 @@ export default function App() {
 
       <ScheduledEmailsList />
 
+      <InboxSummarizer
+        onSelectReply={({ recipient, subject, body }) => {
+          document.getElementById('containerManualCompose')?.scrollIntoView({ behavior: 'smooth' });
+        }}
+      />
+
       <GmailInbox
+
 
 
         inboxMessages={inboxMessages}
