@@ -6,6 +6,11 @@ import uuid
 from typing import List, Optional
 from datetime import datetime
 from contextlib import asynccontextmanager
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
+
 
 from fastapi import FastAPI, HTTPException, Depends, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -426,19 +431,7 @@ async def send_email(req: SendEmailRequest, db: AsyncSession = Depends(get_db)):
         if not to_email:
             raise HTTPException(status_code=400, detail="Recipient 'To' address is required.")
 
-        msg = MIMEMultipart()
-        msg['From'] = user_email
-        msg['To'] = to_email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain'))
-
-        smtp_server = smtplib.SMTP('smtp.gmail.com', 587, timeout=15)
-        smtp_server.starttls()
-        smtp_server.login(user_email, app_password)
-        smtp_server.sendmail(user_email, to_email, msg.as_string())
-        smtp_server.quit()
-
-        # Always save record into Neon DB email_history & emails tables
+        # 1. ALWAYS Save record to Neon DB FIRST so data is NEVER lost!
         hist_id = f"hist-{int(time.time() * 1000)}"
         ed = req.emailData or {}
         db_item = EmailHistoryModel(
@@ -471,14 +464,36 @@ async def send_email(req: SendEmailRequest, db: AsyncSession = Depends(get_db)):
         )
         db.add(email_rec)
         await db.commit()
+        print(f"[NEON DB SUCCESS] Email successfully saved to Neon DB tables ('email_history' & 'emails')!")
 
-        print(f"[NEON DB SUCCESS] Email successfully recorded in Neon DB tables ('email_history' & 'emails')!")
-        return {'success': True, 'message': f'Email successfully delivered to {to_email} and saved to Neon DB!'}
+        # 2. Attempt SMTP Delivery
+        smtp_success = False
+        smtp_msg = ""
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = user_email
+            msg['To'] = to_email
+            msg['Subject'] = subject
+            msg.attach(MIMEText(body, 'plain'))
 
+            smtp_server = smtplib.SMTP('smtp.gmail.com', 587, timeout=15)
+            smtp_server.starttls()
+            smtp_server.login(user_email, app_password)
+            smtp_server.sendmail(user_email, to_email, msg.as_string())
+            smtp_server.quit()
+            smtp_success = True
+            smtp_msg = f"Email delivered to {to_email} and saved to Neon DB!"
+            print(f"[SMTP SUCCESS] Email delivered to {to_email}!")
+        except Exception as smtp_err:
+            print(f"[SMTP WARNING] Could not send via Gmail SMTP: {smtp_err}")
+            smtp_msg = f"Email saved to Neon DB! (SMTP Note: {str(smtp_err)})"
+
+        return {'success': True, 'message': smtp_msg, 'smtp_delivered': smtp_success}
 
     except Exception as e:
-        print(f"[SMTP ERROR] {str(e)}")
+        print(f"[SERVER ERROR] {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @app.post("/api/create-calendar-event")
 async def create_calendar_event(req: CreateCalendarEventRequest, db: AsyncSession = Depends(get_db)):
