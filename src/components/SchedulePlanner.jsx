@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 export function SchedulePlanner({
   events,
@@ -6,13 +6,33 @@ export function SchedulePlanner({
   onRemoveEvent,
   onReadGoogleCalendar,
   onOpenCalendarApiModal,
-  conflictBanner
+  conflictBanner,
+  googleCalendarService
 }) {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [startTime, setStartTime] = useState('14:00');
   const [attendees, setAttendees] = useState('rajsrmap2@gmail.com');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isConnectedToGoogle, setIsConnectedToGoogle] = useState(false);
+
+  useEffect(() => {
+    if (localStorage.getItem('gcal_access_token')) {
+      setIsConnectedToGoogle(true);
+    }
+  }, []);
+
+  const handleConnectGoogle = async () => {
+    if (googleCalendarService) {
+      try {
+        await googleCalendarService.connectGoogleAccount();
+        setIsConnectedToGoogle(true);
+        alert('Connected to Google Calendar! All scheduled events will now save automatically to your Google Calendar app in the background.');
+      } catch (e) {
+        alert('Could not connect to Google Calendar: ' + e.message);
+      }
+    }
+  };
 
   const addOneHour = (timeStr) => {
     if (!timeStr) return '15:00';
@@ -59,7 +79,7 @@ export function SchedulePlanner({
     };
 
     try {
-      // Automatic background saving to Neon DB & Google Calendar
+      // Automatic background saving to Neon DB & Google Calendar App
       await onAddEvent(newEvt);
       setTitle('');
       setAttendees('rajsrmap2@gmail.com');
@@ -76,18 +96,30 @@ export function SchedulePlanner({
         <div class="panel-title">
           <i class="fa-solid fa-calendar-days text-amber" style={{ fontSize: '1.3rem' }}></i>
           <div>
-            <h2 style={{ fontSize: '1.35rem', margin: 0 }}>AI Automatic Google Calendar & Schedule Planner</h2>
-            <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Automatic 1-Click Sync to Google Calendar & Neon DB</span>
+            <h2 style={{ fontSize: '1.35rem', margin: 0 }}>Automated Google Calendar & Schedule Planner</h2>
+            <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Automatic Background Syncing to Google Calendar App & Neon DB</span>
           </div>
         </div>
 
         <div class="calendar-tools" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {!isConnectedToGoogle ? (
+            <button class="btn-pill-sm btn-pill-accent" onClick={handleConnectGoogle} style={{ background: 'rgba(16, 185, 129, 0.25)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.4)' }}>
+              <i class="fa-brands fa-google"></i> Connect Google Calendar (Auto-Sync)
+            </button>
+          ) : (
+            <span class="badge-pill badge-emerald" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px' }}>
+              <i class="fa-solid fa-circle-check text-emerald"></i> Google Calendar Connected
+            </span>
+          )}
+
           <button class="btn-pill-sm" onClick={onOpenCalendarApiModal}>
             <i class="fa-solid fa-key text-amber"></i> OAuth Credentials
           </button>
-          <button class="btn-pill-sm btn-pill-accent" onClick={onReadGoogleCalendar}>
+          
+          <button class="btn-pill-sm" onClick={onReadGoogleCalendar}>
             <i class="fa-solid fa-sync"></i> Read Calendar API
           </button>
+
           <a
             href="https://calendar.google.com/calendar/u/0/r/month"
             target="_blank"
@@ -113,8 +145,8 @@ export function SchedulePlanner({
           <div class="status-banner-content banner-success" style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '14px', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: '12px' }}>
             <i class="fa-solid fa-calendar-check banner-icon text-emerald" style={{ fontSize: '1.4rem' }}></i>
             <div>
-              <h4 style={{ color: '#10b981', margin: 0 }}>Schedule Synced Automatically to Google Calendar & Neon DB</h4>
-              <p style={{ margin: '4px 0 0 0', color: '#9ca3af', fontSize: '0.85rem' }}>Events are saved automatically to your database and Google Calendar account.</p>
+              <h4 style={{ color: '#10b981', margin: 0 }}>Automatic Background Sync Active</h4>
+              <p style={{ margin: '4px 0 0 0', color: '#9ca3af', fontSize: '0.85rem' }}>Events are saved automatically to your Neon DB and Google Calendar account.</p>
             </div>
           </div>
         )}
@@ -171,7 +203,7 @@ export function SchedulePlanner({
         {/* Schedule Form */}
         <div class="calendar-form-card" style={{ background: 'rgba(18, 24, 38, 0.85)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: '18px', padding: '20px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }}>
           <h3 style={{ fontSize: '1.15rem', color: '#f3f4f6', marginTop: 0, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <i class="fa-solid fa-circle-plus text-emerald"></i> Schedule New Event (Automatic Sync)
+            <i class="fa-solid fa-bolt text-emerald"></i> Automated Event Scheduler
           </h3>
           
           <form class="event-form" onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>

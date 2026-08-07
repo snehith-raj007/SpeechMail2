@@ -416,7 +416,9 @@ export default function App() {
         onReadGoogleCalendar={handleReadGoogleCalendar}
         onOpenCalendarApiModal={() => setIsCalendarModalOpen(true)}
         conflictBanner={conflictBanner}
+        googleCalendarService={googleCalendarServiceRef.current}
       />
+
 
       <EmailHistory
         history={history}
