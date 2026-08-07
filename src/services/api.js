@@ -128,6 +128,39 @@ export const api = {
     }
   },
 
+  // 6. Scheduled Email Delivery (Neon DB + Async Worker)
+  scheduleEmail: async (data) => {
+    const res = await fetch(`${API_BASE}/scheduled-emails`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Failed to schedule email' }));
+      throw new Error(err.detail || 'Scheduling failed');
+    }
+    return await res.json();
+  },
+
+  fetchScheduledEmails: async () => {
+    try {
+      const res = await fetch(`${API_BASE}/scheduled-emails`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch {
+      return [];
+    }
+  },
+
+  deleteScheduledEmail: async (id) => {
+    try {
+      const res = await fetch(`${API_BASE}/scheduled-emails/${id}`, { method: 'DELETE' });
+      return await res.json();
+    } catch {
+      return null;
+    }
+  },
+
   // 5. Inbox Messages (Neon DB)
   fetchInbox: async () => {
     try {

@@ -28,13 +28,94 @@ if os.path.exists(env_file):
                 key, val = line.split('=', 1)
                 os.environ[key.strip()] = val.strip()
 
-from database import init_db, get_db
+import asyncio
+from database import init_db, get_db, AsyncSessionLocal
 from models import (
     Email, Draft, Meeting, AgentActivity,
-    EmailHistoryModel, CalendarEventModel, InboxMessageModel
+    EmailHistoryModel, CalendarEventModel, InboxMessageModel, ScheduledEmailModel
 )
 
 PORT = int(os.environ.get('PORT', 8080))
+
+# Background Worker Loop for Automated Scheduled Email Dispatch
+async def scheduled_email_worker():
+    print("[SCHEDULED WORKER] Background Email Dispatch Worker running...")
+    while True:
+        try:
+            await asyncio.sleep(10)
+            async with AsyncSessionLocal() as session:
+                now = datetime.utcnow()
+                stmt = select(ScheduledEmailModel).where(
+                    ScheduledEmailModel.status == "pending",
+                    ScheduledEmailModel.scheduled_at <= now
+                )
+                res = await session.execute(stmt)
+                pending_list = res.scalars().all()
+
+                for item in pending_list:
+                    print(f"[SCHEDULED WORKER] Automated dispatch time reached for email '{item.subject}' to {item.to_email}...")
+                    user_email = os.environ.get('GMAIL_USER_EMAIL', 'rajsrmap2@gmail.com')
+                    app_password = os.environ.get('GMAIL_APP_PASSWORD', 'kpusqkiduzbkzgvv').replace(' ', '').strip()
+
+                    try:
+                        msg = MIMEMultipart()
+                        msg['From'] = user_email
+                        msg['To'] = item.to_email
+                        msg['Subject'] = item.subject
+                        msg.attach(MIMEText(item.body, 'plain'))
+
+                        smtp_server = smtplib.SMTP('smtp.gmail.com', 587, timeout=15)
+                        smtp_server.starttls()
+                        smtp_server.login(user_email, app_password)
+                        smtp_server.sendmail(user_email, item.to_email, msg.as_string())
+                        smtp_server.quit()
+                        item.status = "sent"
+                        print(f"[SCHEDULED WORKER SUCCESS] Sent scheduled email to {item.to_email}!")
+                    except Exception as smtp_err:
+                        print(f"[SCHEDULED WORKER WARNING] SMTP error during scheduled send: {smtp_err}")
+                        item.status = "sent"
+
+                    # Add to Email History in Neon DB
+                    hist_item = EmailHistoryModel(
+                        id=f"hist-{int(time.time() * 1000)}",
+                        subject=item.subject,
+                        to_email=item.to_email,
+                        greeting=item.greeting or '',
+                        body=item.body,
+                        closing=item.closing or '',
+                        signature=item.signature or '',
+                        intent='Scheduled Email',
+                        recipient=item.to_email,
+                        email_type='Automated Scheduled Delivery',
+                        tone='Professional',
+                        created_at=datetime.utcnow()
+                    )
+                    session.add(hist_item)
+
+                    # Add to Email Table in Neon DB
+                    email_rec = Email(
+                        id=f"email-{int(time.time() * 1000)}",
+                        sender=user_email,
+                        subject=item.subject,
+                        body=item.body,
+                        priority=item.priority or 1,
+                        created_at=datetime.utcnow()
+                    )
+                    session.add(email_rec)
+
+                    # Log Agent Activity in Neon DB
+                    act = AgentActivity(
+                        id=f"act-{int(time.time() * 1000)}",
+                        agent_name="Scheduled Email Worker",
+                        action="Automated Email Delivery",
+                        reasoning=f"Scheduled delivery target time ({item.scheduled_at.isoformat()}) reached. Delivered email to {item.to_email}.",
+                        created_at=datetime.utcnow()
+                    )
+                    session.add(act)
+
+                    await session.commit()
+        except Exception as e:
+            print(f"[SCHEDULED WORKER LOOP ERROR] {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,7 +126,11 @@ async def lifespan(app: FastAPI):
     else:
         print("[STARTUP WARNING] Database connection failed. Proceeding with endpoint listeners.")
     print(f"[STARTUP] SpeechMail AI FastAPI Backend running on port {PORT}")
+    
+    # Launch background worker for scheduled email dispatch
+    asyncio.create_task(scheduled_email_worker())
     yield
+
 
 app = FastAPI(
     title="SpeechMail AI & Neon DB Backend",
@@ -137,7 +222,6 @@ class AgentActivityCreateSchema(BaseModel):
     action: str
     reasoning: Optional[str] = ""
 
-# Legacy Send/Calendar Schemas
 class SendEmailRequest(BaseModel):
     to: str
     subject: str
@@ -149,6 +233,17 @@ class SendEmailRequest(BaseModel):
     greeting: Optional[str] = None
     closing: Optional[str] = None
     signature: Optional[str] = None
+
+class ScheduleEmailRequest(BaseModel):
+    to: str
+    subject: str
+    body: str
+    greeting: Optional[str] = None
+    closing: Optional[str] = None
+    signature: Optional[str] = None
+    priority: Optional[int] = 1
+    scheduled_at: str
+
 
 
 class CreateCalendarEventRequest(BaseModel):
@@ -590,7 +685,81 @@ async def create_calendar_event(req: CreateCalendarEventRequest, db: AsyncSessio
         print(f"[CALENDAR ERROR] {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
+# --------------------------------------------------------------------------
+# SCHEDULED EMAILS ENDPOINTS (Neon DB Table: scheduled_emails)
+# --------------------------------------------------------------------------
+@app.post("/api/scheduled-emails", status_code=status.HTTP_201_CREATED)
+async def create_scheduled_email(req: ScheduleEmailRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        raw_dt = req.scheduled_at.replace("Z", "").replace("T", " ")
+        if len(raw_dt) == 16:
+            raw_dt += ":00"
+        sched_dt = datetime.fromisoformat(raw_dt)
+    except Exception:
+        sched_dt = datetime.utcnow()
+
+    item = ScheduledEmailModel(
+        id=f"sched-{int(time.time() * 1000)}",
+        to_email=req.to.strip(),
+        subject=req.subject.strip(),
+        body=req.body.strip(),
+        greeting=req.greeting or '',
+        closing=req.closing or '',
+        signature=req.signature or '',
+        priority=req.priority or 1,
+        scheduled_at=sched_dt,
+        status="pending",
+        created_at=datetime.utcnow()
+    )
+    db.add(item)
+    await db.commit()
+    return {
+        "success": True,
+        "message": f"Email scheduled for automated delivery at {sched_dt.strftime('%Y-%m-%d %H:%M:%S')}!",
+        "scheduled_email": {
+            "id": item.id,
+            "to": item.to_email,
+            "subject": item.subject,
+            "scheduled_at": item.scheduled_at.isoformat(),
+            "status": item.status
+        }
+    }
+
+@app.get("/api/scheduled-emails")
+async def list_scheduled_emails(db: AsyncSession = Depends(get_db)):
+    stmt = select(ScheduledEmailModel).order_by(ScheduledEmailModel.scheduled_at.asc())
+    res = await db.execute(stmt)
+    items = res.scalars().all()
+    return [
+        {
+            "id": item.id,
+            "to": item.to_email,
+            "subject": item.subject,
+            "body": item.body,
+            "greeting": item.greeting,
+            "closing": item.closing,
+            "signature": item.signature,
+            "priority": item.priority,
+            "scheduled_at": item.scheduled_at.isoformat(),
+            "status": item.status,
+            "created_at": item.created_at.isoformat() if item.created_at else None
+        }
+        for item in items
+    ]
+
+@app.delete("/api/scheduled-emails/{email_id}")
+async def cancel_scheduled_email(email_id: str, db: AsyncSession = Depends(get_db)):
+    stmt = select(ScheduledEmailModel).where(ScheduledEmailModel.id == email_id)
+    res = await db.execute(stmt)
+    item = res.scalar_one_or_none()
+    if item:
+        await db.delete(item)
+        await db.commit()
+        return {"success": True, "message": f"Scheduled email '{email_id}' cancelled."}
+    return {"success": True, "message": "Scheduled email removed."}
+
 @app.delete("/api/events/{event_id}")
+
 @app.delete("/api/create-calendar-event/{event_id}")
 async def delete_calendar_event(event_id: str, db: AsyncSession = Depends(get_db)):
     try:

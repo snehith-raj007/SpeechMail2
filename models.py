@@ -94,3 +94,20 @@ class InboxMessageModel(Base):
     category = Column(String, nullable=True)
     body = Column(Text, nullable=True)
     received_at = Column(DateTime, default=datetime.utcnow)
+
+# 6. ScheduledEmail Model for Automated Delayed Email Dispatch
+class ScheduledEmailModel(Base):
+    __tablename__ = "scheduled_emails"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    to_email = Column(String, nullable=False)
+    subject = Column(String, nullable=False)
+    body = Column(Text, nullable=False)
+    greeting = Column(Text, nullable=True)
+    closing = Column(Text, nullable=True)
+    signature = Column(Text, nullable=True)
+    priority = Column(Integer, default=1)
+    scheduled_at = Column(DateTime, nullable=False)  # Target dispatch time
+    status = Column(String, default="pending")        # pending / sent / failed / cancelled
+    created_at = Column(DateTime, default=datetime.utcnow)
+

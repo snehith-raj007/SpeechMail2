@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { api } from '../services/api.js';
 
 export function ManualComposer({ onSendGmail, onSaveDraft }) {
   const [recipient, setRecipient] = useState('');
@@ -7,7 +8,8 @@ export function ManualComposer({ onSendGmail, onSaveDraft }) {
   const [body, setBody] = useState('');
   const [closing, setClosing] = useState('Best Regards,');
   const [signature, setSignature] = useState('Raj');
-  const [priority, setPriority] = useState(1); // 1 = Normal, 2 = Important, 3 = Urgent
+  const [priority, setPriority] = useState(1);
+  const [scheduledAt, setScheduledAt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Quick Preset Templates
@@ -74,11 +76,46 @@ export function ManualComposer({ onSendGmail, onSaveDraft }) {
         signature,
         priority: parseInt(priority)
       });
-      alert(`Email delivered to ${recipient} and logged in Neon DB!`);
       setSubject('');
       setBody('');
     } catch (err) {
       alert('Send Error: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleScheduleEmail = async () => {
+    if (!recipient.trim() || !subject.trim() || !body.trim()) {
+      alert('Please fill in Recipient, Subject, and Body before scheduling!');
+      return;
+    }
+
+    if (!scheduledAt) {
+      alert('Please select a Scheduled Delivery Date & Time!');
+      return;
+    }
+
+    setIsSubmitting(true);
+    const fullBody = `${greeting}\n\n${body}\n\n${closing}\n${signature}`;
+
+    try {
+      const res = await api.scheduleEmail({
+        to: recipient.trim(),
+        subject: subject.trim(),
+        body: fullBody,
+        greeting,
+        closing,
+        signature,
+        priority: parseInt(priority),
+        scheduled_at: scheduledAt
+      });
+      alert(`⏰ ${res.message || 'Email scheduled successfully in Neon DB!'}`);
+      setSubject('');
+      setBody('');
+      setScheduledAt('');
+    } catch (err) {
+      alert('Scheduling Error: ' + err.message);
     } finally {
       setIsSubmitting(false);
     }
@@ -127,6 +164,7 @@ export function ManualComposer({ onSendGmail, onSaveDraft }) {
     setClosing('Best Regards,');
     setSignature('Raj');
     setPriority(1);
+    setScheduledAt('');
   };
 
   const wordCount = body.trim() ? body.trim().split(/\s+/).length : 0;
@@ -138,17 +176,17 @@ export function ManualComposer({ onSendGmail, onSaveDraft }) {
         <div class="panel-title">
           <i class="fa-solid fa-pen-fancy text-cyan" style={{ fontSize: '1.4rem' }}></i>
           <div>
-            <h2 style={{ fontSize: '1.35rem', margin: 0 }}>Executive Manual Email Composer</h2>
-            <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Compose, customize, send via Gmail, & store directly in Neon DB</span>
+            <h2 style={{ fontSize: '1.35rem', margin: 0 }}>Executive Manual & Scheduled Email Composer</h2>
+            <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Send now, schedule for future delivery, & store directly in Neon DB</span>
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <span class="badge-pill badge-cyan">
-            <i class="fa-solid fa-database text-cyan"></i> Neon DB Active
+            <i class="fa-solid fa-clock text-cyan"></i> Auto-Scheduler Active
           </span>
           <span class="badge-pill badge-purple">
-            <i class="fa-solid fa-bolt text-purple"></i> Direct SMTP
+            <i class="fa-solid fa-database text-purple"></i> Neon DB Synced
           </span>
         </div>
       </div>
@@ -232,6 +270,20 @@ export function ManualComposer({ onSendGmail, onSaveDraft }) {
             />
           </div>
 
+          {/* Row 2b: Scheduled Time Picker */}
+          <div style={{ background: 'rgba(168, 85, 247, 0.08)', border: '1px solid rgba(168, 85, 247, 0.3)', borderRadius: '12px', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontWeight: 600, color: '#a855f7', minWidth: '180px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <i class="fa-solid fa-clock"></i> Schedule Delivery Time:
+            </span>
+            <input
+              type="datetime-local"
+              value={scheduledAt}
+              onChange={(e) => setScheduledAt(e.target.value)}
+              style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '6px 12px', color: '#f3f4f6', fontSize: '0.95rem' }}
+            />
+            <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Select target date & time for automated background email send</span>
+          </div>
+
           <hr class="email-divider" style={{ borderColor: 'rgba(255, 255, 255, 0.08)', margin: '4px 0' }} />
 
           {/* Row 3: Greeting, Main Body Textarea, Sign-off & Signature */}
@@ -310,7 +362,17 @@ export function ManualComposer({ onSendGmail, onSaveDraft }) {
                 disabled={isSubmitting}
                 style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 600 }}
               >
-                <i class="fa-brands fa-google text-white" style={{ marginRight: '6px' }}></i> Send via Gmail & Save to Neon DB
+                <i class="fa-brands fa-google text-white" style={{ marginRight: '6px' }}></i> Send Immediately
+              </button>
+
+              <button
+                type="button"
+                class="btn btn-pill-sm"
+                onClick={handleScheduleEmail}
+                disabled={isSubmitting}
+                style={{ background: 'rgba(168, 85, 247, 0.25)', color: '#c084fc', border: '1px solid rgba(168, 85, 247, 0.5)', padding: '12px 20px', fontSize: '0.95rem', fontWeight: 600 }}
+              >
+                <i class="fa-solid fa-clock" style={{ marginRight: '6px' }}></i> Schedule Delivery (Neon DB Worker)
               </button>
 
               <button
@@ -319,7 +381,7 @@ export function ManualComposer({ onSendGmail, onSaveDraft }) {
                 onClick={handleDraftSave}
                 style={{ padding: '12px 20px', fontSize: '0.95rem' }}
               >
-                <i class="fa-solid fa-floppy-disk text-amber" style={{ marginRight: '6px' }}></i> Save Draft to Neon DB
+                <i class="fa-solid fa-floppy-disk text-amber" style={{ marginRight: '6px' }}></i> Save Draft
               </button>
             </div>
 

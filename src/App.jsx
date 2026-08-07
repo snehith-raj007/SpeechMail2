@@ -17,7 +17,9 @@ import { AIPipelineStepper } from './components/AIPipelineStepper.jsx';
 import { ContextExtraction } from './components/ContextExtraction.jsx';
 import { GeneratedEmail } from './components/GeneratedEmail.jsx';
 import { ManualComposer } from './components/ManualComposer.jsx';
+import { ScheduledEmailsList } from './components/ScheduledEmailsList.jsx';
 import { GmailInbox } from './components/GmailInbox.jsx';
+
 
 import { SchedulePlanner } from './components/SchedulePlanner.jsx';
 import { EmailHistory } from './components/EmailHistory.jsx';
@@ -399,7 +401,10 @@ export default function App() {
         }}
       />
 
+      <ScheduledEmailsList />
+
       <GmailInbox
+
 
         inboxMessages={inboxMessages}
         onSyncInbox={async () => {
