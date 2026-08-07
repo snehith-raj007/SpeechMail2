@@ -21,7 +21,14 @@ export function Hero({ onStartRecording, onTrySampleDictation }) {
           <button class="btn btn-secondary-hero" onClick={onTrySampleDictation}>
             <i class="fa-solid fa-wand-magic-sparkles"></i> Try Sample Dictation
           </button>
+          <button
+            class="btn btn-secondary-hero"
+            onClick={() => document.getElementById('containerManualCompose')?.scrollIntoView({ behavior: 'smooth' })}
+          >
+            <i class="fa-solid fa-pen-nib text-cyan"></i> Manual Email Compose
+          </button>
         </div>
+
 
         <div class="feature-highlights-grid">
           <div class="feature-card">

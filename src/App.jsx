@@ -16,7 +16,9 @@ import { SpeechTranscript } from './components/SpeechTranscript.jsx';
 import { AIPipelineStepper } from './components/AIPipelineStepper.jsx';
 import { ContextExtraction } from './components/ContextExtraction.jsx';
 import { GeneratedEmail } from './components/GeneratedEmail.jsx';
+import { ManualComposer } from './components/ManualComposer.jsx';
 import { GmailInbox } from './components/GmailInbox.jsx';
+
 import { SchedulePlanner } from './components/SchedulePlanner.jsx';
 import { EmailHistory } from './components/EmailHistory.jsx';
 import { GmailModal } from './components/GmailModal.jsx';
@@ -382,7 +384,15 @@ export default function App() {
         </div>
       </main>
 
+      <ManualComposer
+        onSendGmail={handleSendGmail}
+        onSaveDraft={async (draftData) => {
+          await api.saveDraft(draftData);
+        }}
+      />
+
       <GmailInbox
+
         inboxMessages={inboxMessages}
         onSyncInbox={async () => {
           const fresh = await gmailServiceRef.current.getInboxMessages();

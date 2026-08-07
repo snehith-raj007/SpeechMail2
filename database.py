@@ -1,148 +1,83 @@
 import os
-import json
-from sqlalchemy import create_engine, Column, String, Text, DateTime, JSON
-from sqlalchemy.orm import declarative_base, sessionmaker
-from datetime import datetime
+import sys
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from models import Base
 
-# Load Neon DB PostgreSQL URL or fallback to SQLite
+# Load .env file manually if present
+env_file = os.path.join(os.path.dirname(__file__), '.env')
+if os.path.exists(env_file):
+    with open(env_file, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                key, val = line.split('=', 1)
+                os.environ[key.strip()] = val.strip()
+
+# 1. Load DATABASE_URL or NEON_DB_URL from environment
 DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("NEON_DB_URL")
 
 if not DATABASE_URL:
-    DATABASE_URL = "sqlite:///./speechmail.db"
+    # Fallback default if not set
+    DATABASE_URL = "sqlite+aiosqlite:///./speechmail.db"
 
-# Handle postgresql:// vs postgres:// URL scheme
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+# Format URL for asyncpg: postgresql:// -> postgresql+asyncpg://
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+elif DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
 
-connect_args = {}
-if DATABASE_URL.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
+# Ensure ssl parameter for Neon DB PostgreSQL connection
+if "postgresql+asyncpg" in DATABASE_URL:
+    if "sslmode=" in DATABASE_URL and "ssl=" not in DATABASE_URL:
+        DATABASE_URL = DATABASE_URL.replace("sslmode=require", "ssl=require")
+    if "ssl=" not in DATABASE_URL:
+        if "?" in DATABASE_URL:
+            DATABASE_URL += "&ssl=require"
+        else:
+            DATABASE_URL += "?ssl=require"
 
-print(f"[DATABASE] Initializing database with target engine: {DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else DATABASE_URL}")
+# Print target host securely (hiding password)
+masked_url = DATABASE_URL
+if "@" in DATABASE_URL:
+    creds_part, host_part = DATABASE_URL.split("@", 1)
+    masked_url = f"postgresql+asyncpg://***:***@{host_part}"
+print(f"[DATABASE] Initializing Async Engine targeting: {masked_url}")
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+# 2. Create Async Engine & Async Session Maker
+try:
+    async_engine = create_async_engine(
+        DATABASE_URL,
+        echo=False,
+        pool_pre_ping=True
+    )
+    AsyncSessionLocal = async_sessionmaker(
+        async_engine,
+        expire_on_commit=False,
+        class_=AsyncSession
+    )
+except Exception as e:
+    print(f"[DATABASE CONFIG ERROR] Failed to create async engine: {e}")
+    sys.exit(1)
 
-class EmailHistoryModel(Base):
-    __tablename__ = "email_history"
+# 3. get_db Dependency for FastAPI Routes
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
 
-    id = Column(String, primary_key=True, index=True)
-    subject = Column(Text, nullable=True)
-    to_email = Column(String, nullable=True)
-    greeting = Column(Text, nullable=True)
-    body = Column(Text, nullable=True)
-    closing = Column(Text, nullable=True)
-    signature = Column(Text, nullable=True)
-    transcript = Column(Text, nullable=True)
-    intent = Column(String, nullable=True)
-    recipient = Column(String, nullable=True)
-    email_type = Column(String, nullable=True)
-    tone = Column(String, nullable=True)
-    key_points = Column(JSON, nullable=True)
-    important_dates = Column(JSON, nullable=True)
-    requested_action = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-class CalendarEventModel(Base):
-    __tablename__ = "calendar_events"
-
-    id = Column(String, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    event_date = Column(String, nullable=False)
-    start_time = Column(String, nullable=False)
-    end_time = Column(String, nullable=False)
-    attendees = Column(JSON, nullable=True)
-    description = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-class InboxMessageModel(Base):
-    __tablename__ = "inbox_messages"
-
-    id = Column(String, primary_key=True, index=True)
-    sender = Column(String, nullable=False)
-    sender_email = Column(String, nullable=False)
-    subject = Column(String, nullable=False)
-    snippet = Column(Text, nullable=True)
-    time_ago = Column(String, nullable=True)
-    category = Column(String, nullable=True)
-    body = Column(Text, nullable=True)
-    received_at = Column(DateTime, default=datetime.utcnow)
-
-def get_db():
-    db = SessionLocal()
+# 4. Async Database Table Initialization on Startup
+async def init_db():
     try:
-        yield db
-    finally:
-        db.close()
-
-def init_db():
-    Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
-    try:
-        # Seed default calendar events if empty
-        if db.query(CalendarEventModel).count() == 0:
-            default_events = [
-                CalendarEventModel(
-                    id="evt-1",
-                    title="Product Strategy Sync",
-                    event_date="2026-08-07",
-                    start_time="10:00",
-                    end_time="11:00",
-                    attendees=["alex@techcorp.com", "sarah@techcorp.com"],
-                    description="Weekly product roadmap discussion"
-                ),
-                CalendarEventModel(
-                    id="evt-2",
-                    title="Client Onboarding Review",
-                    event_date="2026-08-07",
-                    start_time="15:30",
-                    end_time="16:30",
-                    attendees=["client@acme.org"],
-                    description="Onboarding walkthrough with client team"
-                )
-            ]
-            db.add_all(default_events)
-
-        # Seed default inbox messages if empty
-        if db.query(InboxMessageModel).count() == 0:
-            default_inbox = [
-                InboxMessageModel(
-                    id="msg-101",
-                    sender="Sarah Jenkins (VP Engineering)",
-                    sender_email="sarah@techcorp.com",
-                    subject="Q3 Product Roadmap Review & Sprint Planning",
-                    snippet="Hi team, Please confirm your availability for tomorrow's sprint review at 2:00 PM...",
-                    time_ago="10 mins ago",
-                    category="Urgent",
-                    body="Hi team,\n\nPlease confirm your availability for tomorrow's sprint review at 2:00 PM. We need to align on the upcoming release milestones."
-                ),
-                InboxMessageModel(
-                    id="msg-102",
-                    sender="David Miller (Design Lead)",
-                    sender_email="david@designhub.io",
-                    subject="Updated UI/UX Mockups for SpeechMail AI App",
-                    snippet="Hey! Attached are the updated design specs for dark mode and glassmorphism elements...",
-                    time_ago="1 hour ago",
-                    category="Design",
-                    body="Hey!\n\nAttached are the updated design specs for dark mode and glassmorphism elements. Let me know what you think."
-                ),
-                InboxMessageModel(
-                    id="msg-103",
-                    sender="HR Operations Team",
-                    sender_email="hr@techcorp.com",
-                    subject="Reminder: Leave Application Guidelines & Policy",
-                    snippet="Dear Employees, Kindly submit your planned leaves at least 24 hours in advance...",
-                    time_ago="3 hours ago",
-                    category="HR Policy",
-                    body="Dear Employees,\n\nKindly submit your planned leaves at least 24 hours in advance through our AI speech portal or direct manager approval."
-                )
-            ]
-            db.add_all(default_inbox)
-
-        db.commit()
+        async with async_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        print("[NEON DB SUCCESS] Connection established! Neon PostgreSQL database tables verified and created successfully.")
+        return True
     except Exception as e:
-        print(f"[DB SEED ERROR] {e}")
-        db.rollback()
-    finally:
-        db.close()
+        print("\n" + "="*70)
+        print("[NEON DB ERROR] COULD NOT CONNECT TO NEON POSTGRES DATABASE!")
+        print(f"Details: {str(e)}")
+        print("Please check your DATABASE_URL / NEON_DB_URL connection string in .env")
+        print("="*70 + "\n")
+        return False

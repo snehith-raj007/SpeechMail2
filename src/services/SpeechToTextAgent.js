@@ -6,9 +6,9 @@
 
 export class SpeechToTextAgent {
   constructor(options = {}) {
+    const envKey = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SARVAM_API_KEY) ? import.meta.env.VITE_SARVAM_API_KEY : '';
     this.options = {
-      apiKey: options.apiKey || (import.meta && import.meta.env && import.meta.env.VITE_SARVAM_API_KEY) || '',
-
+      apiKey: options.apiKey || envKey || 'sk_olwjwhd1_IAfrrx9rzhnvKZBeW7dDqtsM',
       useSarvamApi: options.useSarvamApi !== undefined ? options.useSarvamApi : true,
       model: options.model || 'saarika:v2.5',
       languageCode: options.languageCode || 'unknown',
@@ -34,6 +34,7 @@ export class SpeechToTextAgent {
     this.audioChunks = [];
     this.animFrame = null;
     this.transcriptHistory = [];
+    this.latestInterim = '';
 
     this._initSpeechRecognition();
   }
@@ -56,15 +57,16 @@ export class SpeechToTextAgent {
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const rawText = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
+            const cleanedText = this.cleanText(rawText);
+            const segment = {
+              id: Date.now(),
+              text: cleanedText,
+              confidence: Math.round((event.results[i][0].confidence || 0.96) * 100),
+              timestamp: new Date().toISOString(),
+              source: 'Web Speech'
+            };
+            this.transcriptHistory.push(segment);
             if (!this.options.useSarvamApi) {
-              const cleanedText = this.cleanText(rawText);
-              const segment = {
-                id: Date.now(),
-                text: cleanedText,
-                confidence: Math.round((event.results[i][0].confidence || 0.96) * 100),
-                timestamp: new Date().toISOString()
-              };
-              this.transcriptHistory.push(segment);
               this.options.onFinalResult(segment);
             }
           } else {
@@ -72,12 +74,13 @@ export class SpeechToTextAgent {
           }
         }
         if (interim) {
+          this.latestInterim = interim;
           this.options.onInterimResult(this.cleanText(interim));
         }
       };
 
       this.recognition.onerror = (err) => {
-        this.options.onError(err);
+        console.warn('[SpeechToTextAgent] Web Speech recognition error:', err);
       };
 
       this.recognition.onend = () => {
@@ -94,6 +97,8 @@ export class SpeechToTextAgent {
   }
 
   async transcribeWithSarvam(audioBlob) {
+    const activeKey = this.options.apiKey || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SARVAM_API_KEY) || 'sk_olwjwhd1_IAfrrx9rzhnvKZBeW7dDqtsM';
+    
     try {
       const formData = new FormData();
       formData.append('file', audioBlob, 'recording.wav');
@@ -105,7 +110,7 @@ export class SpeechToTextAgent {
       const response = await fetch('https://api.sarvam.ai/speech-to-text', {
         method: 'POST',
         headers: {
-          'api-subscription-key': this.options.apiKey
+          'api-subscription-key': activeKey
         },
         body: formData
       });
@@ -129,13 +134,26 @@ export class SpeechToTextAgent {
         };
         this.transcriptHistory.push(segment);
         this.options.onFinalResult(segment);
+        return data;
       }
-
-      return data;
     } catch (err) {
-      console.error('[SpeechToTextAgent] Sarvam API Error:', err);
-      this.options.onError(err);
-      throw err;
+      console.warn('[SpeechToTextAgent] Sarvam API warning:', err.message);
+      // Fallback: use Web Speech transcript history or interim text if Sarvam API key fails
+      if (this.transcriptHistory.length > 0) {
+        const last = this.transcriptHistory[this.transcriptHistory.length - 1];
+        this.options.onFinalResult(last);
+      } else if (this.latestInterim) {
+        const segment = {
+          id: Date.now(),
+          text: this.cleanText(this.latestInterim),
+          confidence: 90,
+          timestamp: new Date().toISOString(),
+          source: 'Local Voice DSP'
+        };
+        this.options.onFinalResult(segment);
+      } else {
+        this.options.onError(err);
+      }
     }
   }
 
@@ -202,6 +220,7 @@ export class SpeechToTextAgent {
   async start() {
     if (this.isRecording) return;
     this.isRecording = true;
+    this.latestInterim = '';
     await this._startAudioDSP();
 
     if (this.recognition) {

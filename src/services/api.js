@@ -68,6 +68,21 @@ export const api = {
     }
   },
 
+  // 3b. Save Draft to Neon DB
+  saveDraft: async (draftData) => {
+    const res = await fetch(`${API_BASE}/db/drafts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(draftData)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Failed to save draft' }));
+      throw new Error(err.detail || 'Failed to save draft');
+    }
+    return await res.json();
+  },
+
+
   clearAllHistory: async () => {
     try {
       const res = await fetch(`${API_BASE}/history`, { method: 'DELETE' });

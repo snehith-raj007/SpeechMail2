@@ -21,11 +21,13 @@ export function Header({
       <nav class="header-nav" aria-label="Main Navigation">
         <a href="#containerHero" class="nav-link active"><i class="fa-solid fa-house"></i> Home</a>
         <a href="#containerRecorder" class="nav-link"><i class="fa-solid fa-microphone"></i> Recorder</a>
+        <a href="#containerManualCompose" class="nav-link"><i class="fa-solid fa-pen-nib text-cyan"></i> Manual Compose</a>
         <a href="#containerPipeline" class="nav-link"><i class="fa-solid fa-gears"></i> AI Pipeline</a>
         <a href="#containerEmail" class="nav-link"><i class="fa-solid fa-paper-plane"></i> Email View</a>
         <a href="#containerInbox" class="nav-link"><i class="fa-solid fa-inbox"></i> Inbox Mails</a>
         <a href="#containerCalendar" class="nav-link"><i class="fa-solid fa-calendar-days"></i> Schedule & Meetings</a>
         <a href="#containerHistory" class="nav-link"><i class="fa-solid fa-clock-rotate-left"></i> History</a>
+
       </nav>
 
       <div class="header-actions">
