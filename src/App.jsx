@@ -225,11 +225,19 @@ export default function App() {
         emailPayload.body,
         emailPayload
       );
-      alert(res.message || `Email successfully sent to ${emailPayload.to}!`);
+
+      // Immediately fetch fresh history from Neon DB
+      const dbHistory = await api.fetchHistory();
+      if (dbHistory && dbHistory.length > 0) {
+        setHistory(dbHistory);
+      }
+
+      alert(res.message || `Email successfully sent to ${emailPayload.to} and saved in Neon DB!`);
     } catch (err) {
       alert(`Send Email Error: ${err.message}`);
     }
   };
+
 
   const handleCopyEmail = () => {
     if (!generatedEmail) return;

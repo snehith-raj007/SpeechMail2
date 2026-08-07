@@ -136,6 +136,11 @@ class SendEmailRequest(BaseModel):
     userEmail: Optional[str] = None
     appPassword: Optional[str] = None
     emailData: Optional[dict] = None
+    priority: Optional[int] = 1
+    greeting: Optional[str] = None
+    closing: Optional[str] = None
+    signature: Optional[str] = None
+
 
 class CreateCalendarEventRequest(BaseModel):
     title: str
@@ -433,42 +438,43 @@ async def send_email(req: SendEmailRequest, db: AsyncSession = Depends(get_db)):
         smtp_server.sendmail(user_email, to_email, msg.as_string())
         smtp_server.quit()
 
-        # Save record into Neon DB email_history & emails table
+        # Always save record into Neon DB email_history & emails tables
         hist_id = f"hist-{int(time.time() * 1000)}"
-        if req.emailData:
-            ed = req.emailData
-            db_item = EmailHistoryModel(
-                id=hist_id,
-                subject=ed.get('subject', subject),
-                to_email=to_email,
-                greeting=ed.get('greeting', ''),
-                body=ed.get('body', body),
-                closing=ed.get('closing', ''),
-                signature=ed.get('signature', ''),
-                transcript=ed.get('transcript', ''),
-                intent=ed.get('intent', ''),
-                recipient=ed.get('recipient', ''),
-                email_type=ed.get('email_type', ''),
-                tone=ed.get('tone', ''),
-                key_points=ed.get('key_points', []),
-                important_dates=ed.get('important_dates', []),
-                requested_action=ed.get('requested_action', ''),
-                created_at=datetime.utcnow()
-            )
-            db.add(db_item)
+        ed = req.emailData or {}
+        db_item = EmailHistoryModel(
+            id=hist_id,
+            subject=subject,
+            to_email=to_email,
+            greeting=ed.get('greeting', req.greeting or ''),
+            body=body,
+            closing=ed.get('closing', req.closing or ''),
+            signature=ed.get('signature', req.signature or ''),
+            transcript=ed.get('transcript', ''),
+            intent=ed.get('intent', 'Sent Email'),
+            recipient=ed.get('recipient', to_email),
+            email_type=ed.get('email_type', 'Direct Delivery'),
+            tone=ed.get('tone', 'Professional'),
+            key_points=ed.get('key_points', []),
+            important_dates=ed.get('important_dates', []),
+            requested_action=ed.get('requested_action', 'Delivered via Gmail'),
+            created_at=datetime.utcnow()
+        )
+        db.add(db_item)
 
         email_rec = Email(
             id=f"email-{int(time.time() * 1000)}",
             sender=user_email,
             subject=subject,
             body=body,
-            priority=2,
+            priority=req.priority or 1,
             created_at=datetime.utcnow()
         )
         db.add(email_rec)
         await db.commit()
 
-        return {'success': True, 'message': f'Email successfully delivered to {to_email}!'}
+        print(f"[NEON DB SUCCESS] Email successfully recorded in Neon DB tables ('email_history' & 'emails')!")
+        return {'success': True, 'message': f'Email successfully delivered to {to_email} and saved to Neon DB!'}
+
 
     except Exception as e:
         print(f"[SMTP ERROR] {str(e)}")
