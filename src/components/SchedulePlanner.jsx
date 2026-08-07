@@ -55,11 +55,11 @@ export function SchedulePlanner({
       startTime,
       endTime: addOneHour(startTime),
       attendees: attendees.split(',').map(a => a.trim()).filter(Boolean),
-      description: 'Scheduled via SpeechMail AI Voice Planner'
+      description: 'Scheduled automatically via SpeechMail AI Voice Planner'
     };
 
     try {
-      // Direct one-click event save to Neon DB & Google Calendar Backend
+      // Automatic background saving to Neon DB & Google Calendar
       await onAddEvent(newEvt);
       setTitle('');
       setAttendees('rajsrmap2@gmail.com');
@@ -76,8 +76,8 @@ export function SchedulePlanner({
         <div class="panel-title">
           <i class="fa-solid fa-calendar-days text-amber" style={{ fontSize: '1.3rem' }}></i>
           <div>
-            <h2 style={{ fontSize: '1.35rem', margin: 0 }}>AI Schedule & Google Calendar Integration</h2>
-            <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Syncs directly with Google Calendar & Neon DB</span>
+            <h2 style={{ fontSize: '1.35rem', margin: 0 }}>AI Automatic Google Calendar & Schedule Planner</h2>
+            <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Automatic 1-Click Sync to Google Calendar & Neon DB</span>
           </div>
         </div>
 
@@ -113,8 +113,8 @@ export function SchedulePlanner({
           <div class="status-banner-content banner-success" style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '14px', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: '12px' }}>
             <i class="fa-solid fa-calendar-check banner-icon text-emerald" style={{ fontSize: '1.4rem' }}></i>
             <div>
-              <h4 style={{ color: '#10b981', margin: 0 }}>Schedule Synced to Google Calendar & Neon DB</h4>
-              <p style={{ margin: '4px 0 0 0', color: '#9ca3af', fontSize: '0.85rem' }}>No calendar conflicts detected for your active schedule.</p>
+              <h4 style={{ color: '#10b981', margin: 0 }}>Schedule Synced Automatically to Google Calendar & Neon DB</h4>
+              <p style={{ margin: '4px 0 0 0', color: '#9ca3af', fontSize: '0.85rem' }}>Events are saved automatically to your database and Google Calendar account.</p>
             </div>
           </div>
         )}
@@ -153,9 +153,9 @@ export function SchedulePlanner({
                       rel="noopener noreferrer"
                       class="btn-pill-sm"
                       style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.4)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', padding: '6px 10px' }}
-                      title="Open in Google Calendar web app"
+                      title="View in Google Calendar web app"
                     >
-                      <i class="fa-brands fa-google"></i> + Add to Google Calendar
+                      <i class="fa-brands fa-google"></i> View on Google Calendar
                     </a>
 
                     <button class="btn-icon danger" onClick={() => onRemoveEvent(ev.id)} title="Delete Event">
@@ -171,7 +171,7 @@ export function SchedulePlanner({
         {/* Schedule Form */}
         <div class="calendar-form-card" style={{ background: 'rgba(18, 24, 38, 0.85)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: '18px', padding: '20px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }}>
           <h3 style={{ fontSize: '1.15rem', color: '#f3f4f6', marginTop: 0, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <i class="fa-solid fa-circle-plus text-emerald"></i> Schedule New Google Calendar Event
+            <i class="fa-solid fa-circle-plus text-emerald"></i> Schedule New Event (Automatic Sync)
           </h3>
           
           <form class="event-form" onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -228,7 +228,7 @@ export function SchedulePlanner({
               disabled={isSubmitting}
               style={{ width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 600, marginTop: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}
             >
-              <i class="fa-brands fa-google"></i> Save Event to Google Calendar & Neon DB
+              <i class="fa-solid fa-calendar-check"></i> Automatically Save Event (Neon DB & Google Calendar)
             </button>
           </form>
         </div>
