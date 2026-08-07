@@ -111,3 +111,22 @@ class ScheduledEmailModel(Base):
     status = Column(String, default="pending")        # pending / sent / failed / cancelled
     created_at = Column(DateTime, default=datetime.utcnow)
 
+# 7. EmailSummary Model for AI Perception, Classification & Memory Persistence in Neon DB
+class EmailSummaryModel(Base):
+    __tablename__ = "email_summaries"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    inbox_message_id = Column(String, nullable=True, index=True)
+    sender = Column(String, nullable=False)
+    sender_email = Column(String, nullable=True)
+    subject = Column(String, nullable=False)
+    summary = Column(Text, nullable=False)
+    priority = Column(String, default="Important")     # Urgent / Important / Routine
+    category = Column(String, default="General")       # Meeting Request / Leave / Status Update / etc
+    intent = Column(String, nullable=True)
+    key_points = Column(JSON, nullable=True)
+    action_items = Column(JSON, nullable=True)
+    suggested_reply = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+

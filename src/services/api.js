@@ -175,6 +175,27 @@ export const api = {
     return await res.json();
   },
 
+  // 8. Summarize All Inbox & Persist in Neon DB Memory
+  summarizeAllInbox: async () => {
+    const res = await fetch(`${API_BASE}/summarize-all-inbox`, { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Failed to process all inbox emails' }));
+      throw new Error(err.detail || 'Summarize all inbox failed');
+    }
+    return await res.json();
+  },
+
+  fetchEmailSummaries: async () => {
+    try {
+      const res = await fetch(`${API_BASE}/email-summaries`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch {
+      return [];
+    }
+  },
+
+
 
   // 5. Inbox Messages (Neon DB)
   fetchInbox: async () => {

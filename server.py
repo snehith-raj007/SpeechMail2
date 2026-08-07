@@ -33,8 +33,9 @@ import asyncio
 from database import init_db, get_db, AsyncSessionLocal
 from models import (
     Email, Draft, Meeting, AgentActivity,
-    EmailHistoryModel, CalendarEventModel, InboxMessageModel, ScheduledEmailModel
+    EmailHistoryModel, CalendarEventModel, InboxMessageModel, ScheduledEmailModel, EmailSummaryModel
 )
+
 
 PORT = int(os.environ.get('PORT', 8080))
 
@@ -801,34 +802,193 @@ Return ONLY raw valid JSON with no markdown block formatting."""
 async def summarize_email(req: SummarizeEmailRequest, db: AsyncSession = Depends(get_db)):
     groq_api_key = os.environ.get("GROQ_API_KEY", "")
 
+    parsed = None
     try:
         parsed = await asyncio.to_thread(_call_groq_summarizer_sync, req.sender, req.subject, req.body, groq_api_key)
-        
-        # Log Agent Activity in Neon DB
-        act = AgentActivity(
-            id=f"act-{int(time.time() * 1000)}",
-            agent_name="Chief Email Perception Agent",
-            action="AI Email Perception & Summarization",
-            reasoning=f"Analyzed email from '{req.sender}' on '{req.subject}'. Classified priority as {parsed.get('priority', 'Important')}.",
-            created_at=datetime.utcnow()
-        )
-        db.add(act)
-        await db.commit()
-
-        return {"success": True, "summary_data": parsed}
     except Exception as e:
         print(f"[SUMMARIZER WARNING] Groq AI call notice: {e}")
 
-    # Heuristic fallback if offline
-    fallback_summary = {
-        "summary": f"Received email regarding '{req.subject}' from {req.sender}. Key details parsed for quick executive review.",
-        "priority": "Important" if ("urgent" in req.subject.lower() or "leave" in req.subject.lower() or "important" in req.subject.lower()) else "Routine",
-        "intent": "Executive Communication",
-        "key_points": [f"Sender: {req.sender}", f"Subject: {req.subject}", "Action required from user"],
-        "action_items": ["Review full email body", "Send response if required"],
-        "suggested_reply": f"Hi {req.sender.split('<')[0]},\n\nThank you for reaching out regarding '{req.subject}'. I have received your email and will review the details shortly.\n\nBest Regards,\nRaj"
+    if not parsed:
+        parsed = {
+            "summary": f"Received email regarding '{req.subject}' from {req.sender}. Key details parsed for quick executive review.",
+            "priority": "Important" if ("urgent" in req.subject.lower() or "leave" in req.subject.lower() or "important" in req.subject.lower()) else "Routine",
+            "intent": "Executive Communication",
+            "key_points": [f"Sender: {req.sender}", f"Subject: {req.subject}", "Action required from user"],
+            "action_items": ["Review full email body", "Send response if required"],
+            "suggested_reply": f"Hi {req.sender.split('<')[0]},\n\nThank you for reaching out regarding '{req.subject}'. I have received your email and will review the details shortly.\n\nBest Regards,\nRaj"
+        }
+
+    # PERMANENTLY SAVE OR UPDATE IN NEON DB (email_summaries table)
+    msg_id = req.id or f"inbox-{int(time.time() * 1000)}"
+    
+    stmt = select(EmailSummaryModel).where(EmailSummaryModel.inbox_message_id == msg_id)
+    res = await db.execute(stmt)
+    existing = res.scalar_one_or_none()
+
+    if existing:
+        existing.summary = parsed.get("summary", "")
+        existing.priority = parsed.get("priority", "Important")
+        existing.intent = parsed.get("intent", "General")
+        existing.category = parsed.get("intent", "General")
+        existing.key_points = parsed.get("key_points", [])
+        existing.action_items = parsed.get("action_items", [])
+        existing.suggested_reply = parsed.get("suggested_reply", "")
+    else:
+        db_sum = EmailSummaryModel(
+            id=f"sum-{int(time.time() * 1000)}",
+            inbox_message_id=msg_id,
+            sender=req.sender,
+            subject=req.subject,
+            summary=parsed.get("summary", ""),
+            priority=parsed.get("priority", "Important"),
+            category=parsed.get("intent", "General"),
+            intent=parsed.get("intent", "General"),
+            key_points=parsed.get("key_points", []),
+            action_items=parsed.get("action_items", []),
+            suggested_reply=parsed.get("suggested_reply", ""),
+            created_at=datetime.utcnow()
+        )
+        db.add(db_sum)
+
+    # Log Agent Activity in Neon DB
+    act = AgentActivity(
+        id=f"act-{int(time.time() * 1000)}",
+        agent_name="Chief Email Perception Agent",
+        action="AI Perception & Neon DB Memory Save",
+        reasoning=f"Analyzed and stored email summary for '{req.subject}' from '{req.sender}' into Neon DB. Priority: {parsed.get('priority', 'Important')}.",
+        created_at=datetime.utcnow()
+    )
+    db.add(act)
+    await db.commit()
+
+    return {"success": True, "summary_data": parsed}
+
+@app.post("/api/summarize-all-inbox")
+async def summarize_all_inbox(db: AsyncSession = Depends(get_db)):
+    # Ensure inbox messages exist
+    stmt = select(InboxMessageModel).order_by(InboxMessageModel.received_at.desc())
+    res = await db.execute(stmt)
+    msgs = res.scalars().all()
+
+    if not msgs:
+        # Seed default inbox messages
+        await get_inbox_messages(db)
+        stmt = select(InboxMessageModel).order_by(InboxMessageModel.received_at.desc())
+        res = await db.execute(stmt)
+        msgs = res.scalars().all()
+
+    processed_count = 0
+    groq_api_key = os.environ.get("GROQ_API_KEY", "")
+
+
+    for msg in msgs:
+        sender_full = f"{msg.sender} <{msg.sender_email}>"
+        body_text = msg.body or msg.snippet or ""
+
+        parsed = None
+        try:
+            parsed = await asyncio.to_thread(_call_groq_summarizer_sync, sender_full, msg.subject, body_text, groq_api_key)
+        except Exception:
+            pass
+
+        if not parsed:
+            parsed = {
+                "summary": f"Received email regarding '{msg.subject}' from {msg.sender}. Key facts parsed for executive review.",
+                "priority": "Important" if ("urgent" in msg.subject.lower() or "leave" in msg.subject.lower()) else "Routine",
+                "intent": msg.category or "General Communication",
+                "key_points": [f"Sender: {msg.sender}", f"Subject: {msg.subject}"],
+                "action_items": ["Review full email body"],
+                "suggested_reply": f"Hi {msg.sender},\n\nThank you for reaching out regarding '{msg.subject}'. I have received your email.\n\nBest Regards,\nRaj"
+            }
+
+        # Check if existing summary in Neon DB
+        chk_stmt = select(EmailSummaryModel).where(EmailSummaryModel.inbox_message_id == msg.id)
+        chk_res = await db.execute(chk_stmt)
+        existing = chk_res.scalar_one_or_none()
+
+        if existing:
+            existing.summary = parsed.get("summary", "")
+            existing.priority = parsed.get("priority", "Important")
+            existing.category = parsed.get("intent", "General")
+            existing.intent = parsed.get("intent", "General")
+            existing.key_points = parsed.get("key_points", [])
+            existing.action_items = parsed.get("action_items", [])
+            existing.suggested_reply = parsed.get("suggested_reply", "")
+        else:
+            db_sum = EmailSummaryModel(
+                id=f"sum-{int(time.time() * 1000)}-{processed_count}",
+                inbox_message_id=msg.id,
+                sender=sender_full,
+                sender_email=msg.sender_email,
+                subject=msg.subject,
+                summary=parsed.get("summary", ""),
+                priority=parsed.get("priority", "Important"),
+                category=parsed.get("intent", "General"),
+                intent=parsed.get("intent", "General"),
+                key_points=parsed.get("key_points", []),
+                action_items=parsed.get("action_items", []),
+                suggested_reply=parsed.get("suggested_reply", ""),
+                created_at=datetime.utcnow()
+            )
+            db.add(db_sum)
+
+        processed_count += 1
+
+    await db.commit()
+
+    # Fetch all stored summaries from Neon DB
+    sum_stmt = select(EmailSummaryModel).order_by(EmailSummaryModel.created_at.desc())
+    sum_res = await db.execute(sum_stmt)
+    all_sums = sum_res.scalars().all()
+
+    return {
+        "success": True,
+        "processed_count": processed_count,
+        "message": f"Successfully read, summarized, classified, and stored {processed_count} emails into Neon DB memory!",
+        "summaries": [
+            {
+                "id": s.id,
+                "inboxMessageId": s.inbox_message_id,
+                "sender": s.sender,
+                "senderEmail": s.sender_email,
+                "subject": s.subject,
+                "summary": s.summary,
+                "priority": s.priority,
+                "category": s.category,
+                "intent": s.intent,
+                "key_points": s.key_points or [],
+                "action_items": s.action_items or [],
+                "suggested_reply": s.suggested_reply,
+                "created_at": s.created_at.isoformat() if s.created_at else None
+            }
+            for s in all_sums
+        ]
     }
-    return {"success": True, "summary_data": fallback_summary}
+
+@app.get("/api/email-summaries")
+async def get_email_summaries(db: AsyncSession = Depends(get_db)):
+    sum_stmt = select(EmailSummaryModel).order_by(EmailSummaryModel.created_at.desc())
+    sum_res = await db.execute(sum_stmt)
+    all_sums = sum_res.scalars().all()
+    return [
+        {
+            "id": s.id,
+            "inboxMessageId": s.inbox_message_id,
+            "sender": s.sender,
+            "senderEmail": s.sender_email,
+            "subject": s.subject,
+            "summary": s.summary,
+            "priority": s.priority,
+            "category": s.category,
+            "intent": s.intent,
+            "key_points": s.key_points or [],
+            "action_items": s.action_items or [],
+            "suggested_reply": s.suggested_reply,
+            "created_at": s.created_at.isoformat() if s.created_at else None
+        }
+        for s in all_sums
+    ]
+
 
 @app.get("/api/scheduled-emails")
 
@@ -958,6 +1118,52 @@ async def get_inbox_messages(db: AsyncSession = Depends(get_db)):
     stmt = select(InboxMessageModel).order_by(InboxMessageModel.received_at.desc())
     res = await db.execute(stmt)
     msgs = res.scalars().all()
+
+    if not msgs:
+        # Seed default executive inbox messages into Neon DB
+        sample_msgs = [
+            InboxMessageModel(
+                id="msg-101",
+                sender="Sarah Connor",
+                sender_email="sarah@techcorp.com",
+                subject="URGENT: Q3 Product Roadmap & Sprint Milestone Review",
+                snippet="Hi Raj, We need to align on the Q3 sprint milestones before 4:00 PM today.",
+                time_ago="15m ago",
+                category="Urgent Meeting Request",
+                body="Hi Raj,\n\nI hope you are doing well. We need to finalize the Q3 product roadmap and align our engineering deliverables before the client demo today at 4:00 PM.\n\nPlease confirm if the SpeechMail AI modules and Neon DB backend integration are complete. If so, kindly send over the status summary report at your earliest convenience.\n\nBest Regards,\nSarah Connor\nProduct Director",
+                received_at=datetime.utcnow()
+            ),
+            InboxMessageModel(
+                id="msg-102",
+                sender="Michael Scott",
+                sender_email="mscott@dundermifflin.com",
+                subject="Leave Application Request for Next Monday",
+                snippet="Requesting approval for 1 day leave next Monday due to personal work.",
+                time_ago="2h ago",
+                category="Leave Application",
+                body="Dear Management,\n\nI am writing to formally request leave for next Monday (August 10th) due to urgent family affairs.\n\nAll my current sprint tasks have been delegated to Jim, and I will be reachable on my mobile if anything urgent arises.\n\nThanks,\nMichael Scott",
+                received_at=datetime.utcnow()
+            ),
+            InboxMessageModel(
+                id="msg-103",
+                sender="Finance Team",
+                sender_email="billing@acme.org",
+                subject="Invoice Payment Confirmation & Tax Statement",
+                snippet="Your monthly cloud server subscription invoice has been processed successfully.",
+                time_ago="1d ago",
+                category="Financial Notice",
+                body="Dear Valued Customer,\n\nThis is an automated notification confirming that your monthly Neon PostgreSQL & Groq AI API infrastructure subscription invoice #INV-9842 has been successfully processed.\n\nNo further action is required from your side.\n\nWarm Regards,\nAcme Billing Operations",
+                received_at=datetime.utcnow()
+            )
+        ]
+        for item in sample_msgs:
+            db.add(item)
+        await db.commit()
+
+        stmt = select(InboxMessageModel).order_by(InboxMessageModel.received_at.desc())
+        res = await db.execute(stmt)
+        msgs = res.scalars().all()
+
     return [
         {
             "id": msg.id,
@@ -971,6 +1177,7 @@ async def get_inbox_messages(db: AsyncSession = Depends(get_db)):
         }
         for msg in msgs
     ]
+
 
 if __name__ == '__main__':
     import uvicorn

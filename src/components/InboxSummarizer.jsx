@@ -7,16 +7,38 @@ export function InboxSummarizer({ onSelectReply }) {
   const [summaries, setSummaries] = useState({});
   const [loadingMap, setLoadingMap] = useState({});
   const [filterCategory, setFilterCategory] = useState('All');
+  const [isBulkSummarizing, setIsBulkSummarizing] = useState(false);
+  const [storedCount, setStoredCount] = useState(0);
 
-  const loadInbox = async () => {
+  const loadData = async () => {
     setLoading(true);
     const msgs = await api.fetchInbox();
     setMessages(msgs || []);
+
+    // Load stored email summaries from Neon DB
+    const dbSums = await api.fetchEmailSummaries();
+    if (dbSums && dbSums.length > 0) {
+      setStoredCount(dbSums.length);
+      const sumMap = {};
+      dbSums.forEach(s => {
+        if (s.inboxMessageId) {
+          sumMap[s.inboxMessageId] = {
+            summary: s.summary,
+            priority: s.priority,
+            intent: s.intent || s.category,
+            key_points: s.key_points || [],
+            action_items: s.action_items || [],
+            suggested_reply: s.suggested_reply
+          };
+        }
+      });
+      setSummaries(prev => ({ ...sumMap, ...prev }));
+    }
     setLoading(false);
   };
 
   useEffect(() => {
-    loadInbox();
+    loadData();
   }, []);
 
   const handleSummarize = async (msg) => {
@@ -30,6 +52,7 @@ export function InboxSummarizer({ onSelectReply }) {
       });
       if (res && res.summary_data) {
         setSummaries(prev => ({ ...prev, [msg.id]: res.summary_data }));
+        setStoredCount(prev => prev + 1);
       }
     } catch (err) {
       alert('Summarization error: ' + err.message);
@@ -38,11 +61,16 @@ export function InboxSummarizer({ onSelectReply }) {
     }
   };
 
-  const handleSummarizeAll = async () => {
-    for (const msg of messages) {
-      if (!summaries[msg.id]) {
-        await handleSummarize(msg);
-      }
+  const handleSummarizeAllAndStore = async () => {
+    setIsBulkSummarizing(true);
+    try {
+      const res = await api.summarizeAllInbox();
+      alert(`💾 ${res.message || 'All received emails summarized, classified, & stored in Neon DB!'}`);
+      loadData();
+    } catch (err) {
+      alert('Bulk processing error: ' + err.message);
+    } finally {
+      setIsBulkSummarizing(false);
     }
   };
 
@@ -57,27 +85,36 @@ export function InboxSummarizer({ onSelectReply }) {
     <section class="panel inbox-panel" id="containerInboxSummarizer" style={{ marginTop: '28px' }}>
       <div class="panel-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
         <div class="panel-title">
-          <i class="fa-solid fa-wand-magic-sparkles text-cyan" style={{ fontSize: '1.3rem' }}></i>
+          <i class="fa-solid fa-wand-magic-sparkles text-cyan" style={{ fontSize: '1.35rem' }}></i>
           <div>
-            <h2 style={{ fontSize: '1.35rem', margin: 0 }}>AI Received Email Perception & Summarizer</h2>
-            <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>LLM Executive Summarization, Priority Reasoning, & Auto-Reply Generation</span>
+            <h2 style={{ fontSize: '1.35rem', margin: 0 }}>AI Received Email Reader, Summarizer, & Neon DB Memory</h2>
+            <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Reads received mails, generates LLM summaries, classifies priority, & stores permanently in Neon DB</span>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <button class="btn-pill-sm btn-pill-accent" onClick={handleSummarizeAll}>
-            <i class="fa-solid fa-brain"></i> Auto-Summarize All Inbox Emails
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <span class="badge-pill badge-purple" style={{ padding: '6px 12px', fontSize: '0.85rem' }}>
+            <i class="fa-solid fa-database text-purple"></i> {storedCount} Summaries Stored in Neon DB
+          </span>
+
+          <button
+            class="btn-pill-sm btn-pill-accent"
+            onClick={handleSummarizeAllAndStore}
+            disabled={isBulkSummarizing}
+            style={{ padding: '8px 16px', fontSize: '0.88rem' }}
+          >
+            <i class={`fa-solid fa-brain ${isBulkSummarizing ? 'fa-spin' : ''}`}></i> 🤖 Read, Summarize, Classify & Store All in Neon DB
           </button>
 
-          <button class="btn-pill-sm" onClick={loadInbox}>
-            <i class={`fa-solid fa-rotate ${loading ? 'fa-spin' : ''}`}></i> Refresh Inbox
+          <button class="btn-pill-sm" onClick={loadData}>
+            <i class={`fa-solid fa-rotate ${loading ? 'fa-spin' : ''}`}></i> Refresh
           </button>
         </div>
       </div>
 
       {/* Filter Category Pills */}
-      <div style={{ padding: '10px 16px', background: 'rgba(6, 182, 212, 0.05)', borderRadius: '12px', marginBottom: '20px', border: '1px solid rgba(6, 182, 212, 0.15)', display: 'flex', gap: '8px', alignItems: 'center' }}>
-        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#06b6d4', marginRight: '6px' }}>Filter Emails:</span>
+      <div style={{ padding: '10px 16px', background: 'rgba(6, 182, 212, 0.05)', borderRadius: '12px', marginBottom: '20px', border: '1px solid rgba(6, 182, 212, 0.15)', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#06b6d4', marginRight: '6px' }}>Filter Messages:</span>
         <button class="btn-pill-sm" onClick={() => setFilterCategory('All')} style={{ background: filterCategory === 'All' ? 'rgba(6, 182, 212, 0.25)' : 'transparent', color: filterCategory === 'All' ? '#06b6d4' : '#9ca3af' }}>All Received</button>
         <button class="btn-pill-sm" onClick={() => setFilterCategory('Urgent')} style={{ background: filterCategory === 'Urgent' ? 'rgba(239, 68, 68, 0.25)' : 'transparent', color: filterCategory === 'Urgent' ? '#ef4444' : '#9ca3af' }}>🔴 Urgent Only</button>
         <button class="btn-pill-sm" onClick={() => setFilterCategory('Important')} style={{ background: filterCategory === 'Important' ? 'rgba(245, 158, 11, 0.25)' : 'transparent', color: filterCategory === 'Important' ? '#f59e0b' : '#9ca3af' }}>🟡 Important Only</button>
@@ -141,7 +178,7 @@ export function InboxSummarizer({ onSelectReply }) {
                       disabled={isSummarizing}
                       style={{ fontSize: '0.85rem', padding: '6px 12px' }}
                     >
-                      <i class={`fa-solid fa-sparkles ${isSummarizing ? 'fa-spin' : ''}`}></i> {summary ? 'Re-Summarize' : '✨ Summarize Email'}
+                      <i class={`fa-solid fa-sparkles ${isSummarizing ? 'fa-spin' : ''}`}></i> {summary ? 'Re-Summarize & Save to Neon DB' : '✨ Summarize & Store in Neon DB'}
                     </button>
                   </div>
                 </div>
@@ -159,7 +196,10 @@ export function InboxSummarizer({ onSelectReply }) {
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                         <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#a855f7', background: 'rgba(168, 85, 247, 0.2)', padding: '2px 8px', borderRadius: '6px' }}>
-                          📌 Intent: {summary.intent}
+                          📌 Category / Intent: {summary.intent}
+                        </span>
+                        <span style={{ fontSize: '0.75rem', color: '#10b981', background: 'rgba(16, 185, 129, 0.15)', padding: '2px 8px', borderRadius: '6px' }}>
+                          <i class="fa-solid fa-database"></i> Stored in Neon DB
                         </span>
                       </div>
                       <h4 style={{ margin: '0 0 4px 0', fontSize: '0.95rem', color: '#06b6d4' }}><i class="fa-solid fa-align-left"></i> Executive TL;DR Summary:</h4>
