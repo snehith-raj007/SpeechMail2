@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Speech-to-Text Voice Agent Module Demo</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card: #131b2e;
+      --accent: #6366f1;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 2rem;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .agent-card {
+      background: var(--card);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 16px;
+      padding: 1.5rem;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+    .mic-btn {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      font-size: 1.5rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s ease;
+      box-shadow: 0 0 15px rgba(99,102,241,0.4);
+    }
+    .mic-btn.active {
+      background: #f43f5e;
+      box-shadow: 0 0 25px rgba(244,63,94,0.6);
+      animation: pulse 1.2s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.06); }
+      100% { transform: scale(1); }
+    }
+    .transcript-box {
+      min-height: 180px;
+      max-height: 350px;
+      overflow-y: auto;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 12px;
+      padding: 1rem;
+      font-size: 1rem;
+      line-height: 1.6;
+      margin-top: 1rem;
+    }
+    .interim {
+      color: #06b6d4;
+      font-style: italic;
+    }
+    .segment {
+      margin-bottom: 0.5rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .badge {
+      font-size: 0.75rem;
+      background: rgba(99,102,241,0.2);
+      color: #a5b4fc;
+      padding: 0.2rem 0.6rem;
+      border-radius: 99px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="agent-card">
+    <div class="header">
+      <div>
+        <h2>🎤 Speech-to-Text Voice Agent</h2>
+        <p style="color: var(--text-muted); font-size: 0.85rem;">Standalone embeddable voice module</p>
+      </div>
+      <button id="btnToggleMic" class="mic-btn" title="Toggle Recording">🎙️</button>
+    </div>
+
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+      <span class="badge" id="statusBadge">Status: Ready</span>
+      <span class="badge" id="volumeBadge">Volume: 0</span>
+    </div>
+
+    <div class="transcript-box" id="transcriptBox">
+      <p style="color: var(--text-muted); text-align: center; margin-top: 4rem;">Click microphone to start transcribing speech into text.</p>
+    </div>
+  </div>
+
+  <script type="module">
+    import { SpeechToTextAgent } from './SpeechToTextAgent.js';
+
+    const btnMic = document.getElementById('btnToggleMic');
+    const transcriptBox = document.getElementById('transcriptBox');
+    const statusBadge = document.getElementById('statusBadge');
+    const volumeBadge = document.getElementById('volumeBadge');
+
+    let isFirst = true;
+
+    // Instantiate Speech-to-Text Voice Agent
+    const sttAgent = new SpeechToTextAgent({
+      language: 'en-US',
+      continuous: true,
+      filterFillers: true,
+      noiseFilter: true,
+      glossary: ['VoxMind', 'AI Agent', 'GraphQL', 'Kubernetes'],
+
+      onSpeechStart: () => {
+        statusBadge.textContent = 'Status: Listening...';
+        btnMic.classList.add('active');
+        btnMic.textContent = '⏹️';
+      },
+
+      onSpeechEnd: () => {
+        statusBadge.textContent = 'Status: Stopped';
+        btnMic.classList.remove('active');
+        btnMic.textContent = '🎙️';
+      },
+
+      onInterimResult: (text) => {
+        if (isFirst) { transcriptBox.innerHTML = ''; isFirst = false; }
+        let interimEl = document.getElementById('interimSegment');
+        if (!interimEl) {
+          interimEl = document.createElement('div');
+          interimEl.id = 'interimSegment';
+          interimEl.className = 'interim';
+          transcriptBox.appendChild(interimEl);
+        }
+        interimEl.textContent = `Listening: ${text}`;
+        transcriptBox.scrollTop = transcriptBox.scrollHeight;
+      },
+
+      onFinalResult: (segment) => {
+        if (isFirst) { transcriptBox.innerHTML = ''; isFirst = false; }
+        
+        const interimEl = document.getElementById('interimSegment');
+        if (interimEl) interimEl.remove();
+
+        const div = document.createElement('div');
+        div.className = 'segment';
+        div.innerHTML = `<strong>Text:</strong> ${segment.text} <span style="font-size:0.75rem; color:#94a3b8;">(${segment.confidence}% confidence)</span>`;
+        transcriptBox.appendChild(div);
+        transcriptBox.scrollTop = transcriptBox.scrollHeight;
+      },
+
+      onAudioLevel: (level) => {
+        volumeBadge.textContent = `Volume: ${level}`;
+      },
+
+      onError: (err) => {
+        console.error('STT Error:', err);
+        statusBadge.textContent = `Error: ${err.error || 'Speech error'}`;
+      }
+    });
+
+    btnMic.addEventListener('click', () => {
+      if (sttAgent.isRecording) {
+        sttAgent.stop();
+      } else {
+        sttAgent.start();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# Environment & Secret Files
+.env
+.env.local
+.env.development
+
+# Node Dependencies
+node_modules/
+npm-debug.log*
+
+# Python Virtual Env & Cache
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Database files
+*.db
+speechmail.db
+
+# Build Output
+dist/
+build/
+
+# OS & IDE Files
+.DS_Store
+.idea/
+.vscode/
