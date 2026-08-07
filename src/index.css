@@ -1702,6 +1702,44 @@ body {
   color: var(--text-dim);
 }
 
+/* Enhanced Glassmorphism Card & Action Styling */
+.email-document-card {
+  background: var(--bg-card-solid);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-card-bright);
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  box-shadow: var(--shadow-card);
+}
+
+.email-recipient-bar {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-md);
+  padding: 10px 16px;
+}
+
+.email-subject-box {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+}
+
+.email-body-box {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+.panel-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* Responsive Breakpoints */
 @media (max-width: 1024px) {
   .app-main-grid { grid-template-columns: 1fr; }
@@ -1719,3 +1757,4 @@ body {
   .history-list { grid-template-columns: 1fr; }
   .footer-grid { grid-template-columns: 1fr; }
 }
+
