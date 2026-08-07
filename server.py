@@ -4,8 +4,9 @@ import smtplib
 import time
 import uuid
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
+
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -44,10 +45,12 @@ async def scheduled_email_worker():
         try:
             await asyncio.sleep(10)
             async with AsyncSessionLocal() as session:
-                now = datetime.utcnow()
+                now_utc = datetime.utcnow()
+                now_local = datetime.now()
+                # Check for pending scheduled emails whose dispatch time has arrived (UTC or Local)
                 stmt = select(ScheduledEmailModel).where(
                     ScheduledEmailModel.status == "pending",
-                    ScheduledEmailModel.scheduled_at <= now
+                    (ScheduledEmailModel.scheduled_at <= now_utc) | (ScheduledEmailModel.scheduled_at <= now_local)
                 )
                 res = await session.execute(stmt)
                 pending_list = res.scalars().all()
@@ -116,6 +119,7 @@ async def scheduled_email_worker():
                     await session.commit()
         except Exception as e:
             print(f"[SCHEDULED WORKER LOOP ERROR] {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -235,14 +239,16 @@ class SendEmailRequest(BaseModel):
     signature: Optional[str] = None
 
 class ScheduleEmailRequest(BaseModel):
-    to: str
+    to: Optional[str] = None
+    recipient: Optional[str] = None
     subject: str
     body: str
     greeting: Optional[str] = None
     closing: Optional[str] = None
     signature: Optional[str] = None
     priority: Optional[int] = 1
-    scheduled_at: str
+    scheduled_at: Optional[str] = None
+
 
 
 
@@ -690,17 +696,30 @@ async def create_calendar_event(req: CreateCalendarEventRequest, db: AsyncSessio
 # --------------------------------------------------------------------------
 @app.post("/api/scheduled-emails", status_code=status.HTTP_201_CREATED)
 async def create_scheduled_email(req: ScheduleEmailRequest, db: AsyncSession = Depends(get_db)):
-    try:
-        raw_dt = req.scheduled_at.replace("Z", "").replace("T", " ")
-        if len(raw_dt) == 16:
-            raw_dt += ":00"
-        sched_dt = datetime.fromisoformat(raw_dt)
-    except Exception:
+    target_to = (req.to or req.recipient or "").strip()
+    if not target_to:
+        raise HTTPException(status_code=400, detail="Recipient email address ('to') is required.")
+
+    if not req.subject or not req.subject.strip():
+        raise HTTPException(status_code=400, detail="Email subject is required.")
+
+    if not req.body or not req.body.strip():
+        raise HTTPException(status_code=400, detail="Email body content is required.")
+
+    raw_str = (req.scheduled_at or "").strip().replace("Z", "").replace("T", " ")
+    if not raw_str:
         sched_dt = datetime.utcnow()
+    else:
+        try:
+            if len(raw_str) == 16:
+                raw_str += ":00"
+            sched_dt = datetime.fromisoformat(raw_str)
+        except Exception:
+            sched_dt = datetime.utcnow()
 
     item = ScheduledEmailModel(
         id=f"sched-{int(time.time() * 1000)}",
-        to_email=req.to.strip(),
+        to_email=target_to,
         subject=req.subject.strip(),
         body=req.body.strip(),
         greeting=req.greeting or '',
@@ -715,7 +734,7 @@ async def create_scheduled_email(req: ScheduleEmailRequest, db: AsyncSession = D
     await db.commit()
     return {
         "success": True,
-        "message": f"Email scheduled for automated delivery at {sched_dt.strftime('%Y-%m-%d %H:%M:%S')}!",
+        "message": f"Email scheduled for automated delivery to {target_to} at {sched_dt.strftime('%Y-%m-%d %H:%M:%S')}!",
         "scheduled_email": {
             "id": item.id,
             "to": item.to_email,
@@ -724,6 +743,7 @@ async def create_scheduled_email(req: ScheduleEmailRequest, db: AsyncSession = D
             "status": item.status
         }
     }
+
 
 @app.get("/api/scheduled-emails")
 async def list_scheduled_emails(db: AsyncSession = Depends(get_db)):

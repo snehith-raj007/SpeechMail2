@@ -86,14 +86,25 @@ export function ManualComposer({ onSendGmail, onSaveDraft }) {
   };
 
   const handleScheduleEmail = async () => {
-    if (!recipient.trim() || !subject.trim() || !body.trim()) {
-      alert('Please fill in Recipient, Subject, and Body before scheduling!');
+    if (!recipient.trim()) {
+      alert('Please enter a recipient email address (To:) before scheduling!');
+      return;
+    }
+    if (!subject.trim()) {
+      alert('Please enter an email subject before scheduling!');
+      return;
+    }
+    if (!body.trim()) {
+      alert('Please enter the email body message before scheduling!');
       return;
     }
 
-    if (!scheduledAt) {
-      alert('Please select a Scheduled Delivery Date & Time!');
-      return;
+    let targetTime = scheduledAt;
+    if (!targetTime) {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() + 2);
+      targetTime = now.toISOString().slice(0, 16);
+      setScheduledAt(targetTime);
     }
 
     setIsSubmitting(true);
@@ -108,12 +119,11 @@ export function ManualComposer({ onSendGmail, onSaveDraft }) {
         closing,
         signature,
         priority: parseInt(priority),
-        scheduled_at: scheduledAt
+        scheduled_at: targetTime
       });
       alert(`⏰ ${res.message || 'Email scheduled successfully in Neon DB!'}`);
       setSubject('');
       setBody('');
-      setScheduledAt('');
     } catch (err) {
       alert('Scheduling Error: ' + err.message);
     } finally {
@@ -281,7 +291,7 @@ export function ManualComposer({ onSendGmail, onSaveDraft }) {
               onChange={(e) => setScheduledAt(e.target.value)}
               style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '6px 12px', color: '#f3f4f6', fontSize: '0.95rem' }}
             />
-            <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Select target date & time for automated background email send</span>
+            <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Select target date & time (defaults to +2 mins if empty)</span>
           </div>
 
           <hr class="email-divider" style={{ borderColor: 'rgba(255, 255, 255, 0.08)', margin: '4px 0' }} />
