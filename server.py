@@ -149,11 +149,15 @@ class SendEmailRequest(BaseModel):
 
 class CreateCalendarEventRequest(BaseModel):
     title: str
-    date: str
-    startTime: str
-    endTime: str
+    date: Optional[str] = None
+    event_date: Optional[str] = None
+    startTime: Optional[str] = None
+    start_time: Optional[str] = None
+    endTime: Optional[str] = None
+    end_time: Optional[str] = None
     attendees: Optional[list] = []
     description: Optional[str] = ""
+
 
 # --------------------------------------------------------------------------
 # Root Endpoint
@@ -495,18 +499,21 @@ async def send_email(req: SendEmailRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.post("/api/create-calendar-event")
+@app.post("/api/events", status_code=status.HTTP_201_CREATED)
+@app.post("/api/create-calendar-event", status_code=status.HTTP_201_CREATED)
 async def create_calendar_event(req: CreateCalendarEventRequest, db: AsyncSession = Depends(get_db)):
+
     try:
         user_email = os.environ.get('GMAIL_USER_EMAIL', 'rajsrmap2@gmail.com')
         app_password = os.environ.get('GMAIL_APP_PASSWORD', 'kpusqkiduzbkzgvv').replace(' ', '').strip()
 
         title = req.title.strip()
-        date_str = req.date.strip()
-        start_time = req.startTime.strip()
-        end_time = req.endTime.strip()
+        date_str = (req.date or req.event_date or datetime.now().strftime('%Y-%m-%d')).strip()
+        start_time = (req.startTime or req.start_time or '14:00').strip()
+        end_time = (req.endTime or req.end_time or '15:00').strip()
         attendees = req.attendees or [user_email]
         description = req.description.strip() if req.description else 'Scheduled via SpeechMail AI Voice Planner'
+
 
         ics_content = generate_ics_content(title, date_str, start_time, end_time, attendees, description, user_email)
 
@@ -579,8 +586,34 @@ async def create_calendar_event(req: CreateCalendarEventRequest, db: AsyncSessio
         print(f"[CALENDAR ERROR] {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.post("/api/history", status_code=status.HTTP_201_CREATED)
+async def save_history_item(req: dict, db: AsyncSession = Depends(get_db)):
+    hist_id = req.get('id') or f"hist-{int(time.time() * 1000)}"
+    db_item = EmailHistoryModel(
+        id=hist_id,
+        subject=req.get('subject', 'Generated Email'),
+        to_email=req.get('to') or req.get('to_email') or 'manager@techcorp.com',
+        greeting=req.get('greeting', ''),
+        body=req.get('body', ''),
+        closing=req.get('closing', ''),
+        signature=req.get('signature', ''),
+        transcript=req.get('transcript', ''),
+        intent=req.get('intent', 'AI Generated Email'),
+        recipient=req.get('recipient', req.get('to', '')),
+        email_type=req.get('email_type', 'AI Email'),
+        tone=req.get('tone', 'Professional'),
+        key_points=req.get('key_points', []),
+        important_dates=req.get('important_dates', []),
+        requested_action=req.get('requested_action', ''),
+        created_at=datetime.utcnow()
+    )
+    db.add(db_item)
+    await db.commit()
+    return {"success": True, "message": "History item saved to Neon DB!", "id": hist_id}
+
 @app.get("/api/history")
 async def get_email_history(db: AsyncSession = Depends(get_db)):
+
     stmt = select(EmailHistoryModel).order_by(EmailHistoryModel.created_at.desc())
     res = await db.execute(stmt)
     items = res.scalars().all()
