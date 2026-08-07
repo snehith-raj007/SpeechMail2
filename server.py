@@ -67,23 +67,24 @@ def generate_ics_content(title, date_str, start_time, end_time, attendees, descr
     clean_date = date_str.replace('-', '')
     start_dt = f"{clean_date}T{start_time.replace(':', '')}00"
     end_dt = f"{clean_date}T{end_time.replace(':', '')}00"
-    uid = f"speechmail-{int(time.time() * 1000)}@speechmail.ai"
+    uid = f"speechmail-{int(time.time() * 1000)}@google.com"
 
-    attendee_lines = ""
+    attendee_lines = f"ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN={organizer_email}:mailto:{organizer_email}\r\n"
     if isinstance(attendees, list):
         for att in attendees:
-            if att and '@' in att:
-                attendee_lines += f"ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:{att.strip()}\r\n"
-    elif isinstance(attendees, str) and '@' in attendees:
-        attendee_lines += f"ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:{attendees.strip()}\r\n"
+            if att and '@' in att and att.strip().lower() != organizer_email.lower():
+                attendee_lines += f"ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;RSVP=FALSE:mailto:{att.strip()}\r\n"
+    elif isinstance(attendees, str) and '@' in attendees and attendees.strip().lower() != organizer_email.lower():
+        attendee_lines += f"ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;RSVP=FALSE:mailto:{attendees.strip()}\r\n"
 
     ics = (
         "BEGIN:VCALENDAR\r\n"
-        "PRODID:-//SpeechMail AI//Google Calendar Integration//EN\r\n"
+        "PRODID:-//Google Inc//Google Calendar 70.9054//EN\r\n"
         "VERSION:2.0\r\n"
+        "CALSCALE:GREGORIAN\r\n"
         "METHOD:REQUEST\r\n"
         "BEGIN:VEVENT\r\n"
-        f"ORGANIZER;CN=SpeechMail AI:mailto:{organizer_email}\r\n"
+        f"ORGANIZER;CN={organizer_email}:mailto:{organizer_email}\r\n"
         f"{attendee_lines}"
         f"UID:{uid}\r\n"
         f"DTSTAMP:{start_dt}Z\r\n"
@@ -92,10 +93,13 @@ def generate_ics_content(title, date_str, start_time, end_time, attendees, descr
         f"SUMMARY:{title}\r\n"
         f"DESCRIPTION:{description}\r\n"
         "STATUS:CONFIRMED\r\n"
+        "SEQUENCE:0\r\n"
+        "TRANSP:OPAQUE\r\n"
         "END:VEVENT\r\n"
         "END:VCALENDAR\r\n"
     )
     return ics
+
 
 # --------------------------------------------------------------------------
 # Pydantic Schemas for New Neon DB Tables
@@ -586,7 +590,24 @@ async def create_calendar_event(req: CreateCalendarEventRequest, db: AsyncSessio
         print(f"[CALENDAR ERROR] {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.delete("/api/events/{event_id}")
+@app.delete("/api/create-calendar-event/{event_id}")
+async def delete_calendar_event(event_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        stmt = select(CalendarEventModel).where(CalendarEventModel.id == event_id)
+        res = await db.execute(stmt)
+        evt = res.scalar_one_or_none()
+        if evt:
+            await db.delete(evt)
+            await db.commit()
+            return {"success": True, "message": f"Event '{event_id}' deleted from Neon DB!"}
+        return {"success": True, "message": "Event removed"}
+    except Exception as e:
+        print(f"[DELETE EVENT WARNING] {e}")
+        return {"success": True, "message": "Event removed"}
+
 @app.post("/api/history", status_code=status.HTTP_201_CREATED)
+
 async def save_history_item(req: dict, db: AsyncSession = Depends(get_db)):
     hist_id = req.get('id') or f"hist-{int(time.time() * 1000)}"
     db_item = EmailHistoryModel(

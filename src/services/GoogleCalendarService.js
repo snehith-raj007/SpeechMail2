@@ -1,7 +1,7 @@
 /**
  * GoogleCalendarService.js
- * Automatic Integration module for Google Calendar API (Read, Write, Append)
- * Direct Background OAuth 2.0 & REST API Automatic Event Creation
+ * Integration module for Google Calendar API operations (Read, Write, Append)
+ * Direct OAuth 2.0 & REST API Automatic Event Creation
  */
 
 import { api } from './api.js';
@@ -17,7 +17,7 @@ export class GoogleCalendarService {
     this.initOAuthTokenClient();
   }
 
-  initOAuthTokenClient(onSuccess) {
+  initOAuthTokenClient() {
     if (typeof window !== 'undefined' && window.google && window.google.accounts && window.google.accounts.oauth2) {
       try {
         this.tokenClient = window.google.accounts.oauth2.initTokenClient({
@@ -27,8 +27,7 @@ export class GoogleCalendarService {
             if (response.access_token) {
               this.accessToken = response.access_token;
               localStorage.setItem('gcal_access_token', response.access_token);
-              console.log('[GoogleCalendarService] Google Calendar OAuth Access Token Acquired!');
-              if (onSuccess) onSuccess(response.access_token);
+              console.log('[GoogleCalendarService] OAuth Access Token acquired successfully!');
             }
           }
         });
@@ -38,16 +37,13 @@ export class GoogleCalendarService {
     }
   }
 
-  connectGoogleAccount() {
-    return new Promise((resolve, reject) => {
-      this.initOAuthTokenClient((token) => resolve(token));
-      if (this.tokenClient) {
-        this.tokenClient.requestAccessToken({ prompt: 'consent' });
-      } else {
-        alert('Google OAuth library is initializing. Please try again in 2 seconds.');
-        reject(new Error('Google OAuth library loading'));
-      }
-    });
+  async requestCalendarPermission() {
+    if (!this.tokenClient) {
+      this.initOAuthTokenClient();
+    }
+    if (this.tokenClient) {
+      this.tokenClient.requestAccessToken({ prompt: 'consent' });
+    }
   }
 
   async readCalendarEvents() {
@@ -82,56 +78,50 @@ export class GoogleCalendarService {
   }
 
   async writeCalendarEvent(eventData) {
-    let apiSuccess = false;
-    let apiMessage = '';
+    try {
+      // 1. Save to Neon DB & send backend calendar invite
+      const response = await api.createCalendarEvent(eventData);
 
-    // 1. Direct Background Insert to Google Calendar REST API if Access Token Available
-    const token = this.accessToken || localStorage.getItem('gcal_access_token');
-    if (token) {
-      try {
-        const startISO = `${eventData.date}T${eventData.startTime || '14:00'}:00+05:30`;
-        const endISO = `${eventData.date}T${eventData.endTime || '15:00'}:00+05:30`;
-        const attendeesList = Array.isArray(eventData.attendees) 
-          ? eventData.attendees.map(a => ({ email: typeof a === 'string' ? a : a.email }))
-          : [{ email: eventData.attendees || 'rajsrmap2@gmail.com' }];
+      // 2. Automatically insert directly into Google Calendar via REST API if token available
+      const token = this.accessToken || localStorage.getItem('gcal_access_token');
+      if (token) {
+        try {
+          const startISO = `${eventData.date}T${eventData.startTime || '14:00'}:00+05:30`;
+          const endISO = `${eventData.date}T${eventData.endTime || '15:00'}:00+05:30`;
+          const attendeesList = Array.isArray(eventData.attendees) 
+            ? eventData.attendees.map(a => ({ email: typeof a === 'string' ? a : a.email }))
+            : [{ email: eventData.attendees || 'rajsrmap2@gmail.com' }];
 
-        const gcalBody = {
-          summary: eventData.title,
-          description: eventData.description || 'Scheduled automatically via SpeechMail AI Voice Planner',
-          start: { dateTime: startISO, timeZone: 'Asia/Kolkata' },
-          end: { dateTime: endISO, timeZone: 'Asia/Kolkata' },
-          attendees: attendeesList
-        };
+          const gcalBody = {
+            summary: eventData.title,
+            description: eventData.description || 'Scheduled automatically via SpeechMail AI Voice Planner',
+            start: { dateTime: startISO, timeZone: 'Asia/Kolkata' },
+            end: { dateTime: endISO, timeZone: 'Asia/Kolkata' },
+            attendees: attendeesList
+          };
 
-        const gRes = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(gcalBody)
-        });
+          const gRes = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(gcalBody)
+          });
 
-        if (gRes.ok) {
-          const gData = await gRes.json();
-          console.log('[GoogleCalendarService] AUTOMATIC DIRECT INSERT SUCCESS:', gData);
-          apiSuccess = true;
-          apiMessage = `Event '${eventData.title}' inserted automatically into Google Calendar App & Neon DB!`;
-        } else {
-          console.warn('[GoogleCalendarService] Google Calendar REST API status:', gRes.status);
+          if (gRes.ok) {
+            const gData = await gRes.json();
+            console.log('[GoogleCalendarService] Event inserted directly into Google Calendar:', gData);
+          }
+        } catch (gErr) {
+          console.warn('[GoogleCalendarService] Direct Google REST API insert notice:', gErr);
         }
-      } catch (gErr) {
-        console.warn('[GoogleCalendarService] Direct Google REST API insert notice:', gErr);
       }
+
+      return response;
+    } catch (err) {
+      console.error("[GoogleCalendarService] Write Event Error:", err);
+      throw err;
     }
-
-    // 2. Save to Neon DB & send backend calendar email invite
-    const dbResponse = await api.createCalendarEvent(eventData);
-
-    return {
-      success: true,
-      message: apiMessage || dbResponse.message || `Meeting '${eventData.title}' saved to Neon DB & Google Calendar!`,
-      event: eventData
-    };
   }
 }
