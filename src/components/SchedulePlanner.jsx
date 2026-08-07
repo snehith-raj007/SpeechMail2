@@ -11,24 +11,7 @@ export function SchedulePlanner({
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [startTime, setStartTime] = useState('14:00');
-  const [attendees, setAttendees] = useState('');
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!title.trim()) return;
-
-    onAddEvent({
-      title: title.trim(),
-      date,
-      startTime,
-      endTime: addOneHour(startTime),
-      attendees: attendees.split(',').map(a => a.trim()).filter(Boolean),
-      description: 'Scheduled via SpeechMail AI Voice Planner'
-    });
-
-    setTitle('');
-    setAttendees('');
-  };
+  const [attendees, setAttendees] = useState('rajsrmap2@gmail.com');
 
   const addOneHour = (timeStr) => {
     if (!timeStr) return '15:00';
@@ -37,22 +20,75 @@ export function SchedulePlanner({
     return `${newH.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
   };
 
+  const getGoogleCalendarUrl = (ev) => {
+    const title = encodeURIComponent(ev.title || 'Meeting');
+    const details = encodeURIComponent(ev.description || 'Scheduled via SpeechMail AI Voice Planner');
+    const dateStr = ev.date ? ev.date.replace(/-/g, '') : new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const startStr = ev.startTime ? ev.startTime.replace(':', '') + '00' : '140000';
+    const endStr = ev.endTime ? ev.endTime.replace(':', '') + '00' : '150000';
+
+    const startISO = `${dateStr}T${startStr}`;
+    const endISO = `${dateStr}T${endStr}`;
+    const datesParam = `${startISO}/${endISO}`;
+
+    let url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${datesParam}&details=${details}`;
+    if (ev.attendees && ev.attendees.length > 0) {
+      const attList = Array.isArray(ev.attendees) ? ev.attendees.join(',') : ev.attendees;
+      url += `&add=${encodeURIComponent(attList)}`;
+    }
+    return url;
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+
+    const newEvt = {
+      title: title.trim(),
+      date,
+      startTime,
+      endTime: addOneHour(startTime),
+      attendees: attendees.split(',').map(a => a.trim()).filter(Boolean),
+      description: 'Scheduled via SpeechMail AI Voice Planner'
+    };
+
+    onAddEvent(newEvt);
+
+    // Open Google Calendar in new tab to add directly to Google Calendar grid
+    const gCalUrl = getGoogleCalendarUrl(newEvt);
+    window.open(gCalUrl, '_blank');
+
+    setTitle('');
+    setAttendees('rajsrmap2@gmail.com');
+  };
+
   return (
-    <section class="panel calendar-panel" id="containerCalendar">
-      <div class="panel-header">
+    <section class="panel calendar-panel" id="containerCalendar" style={{ marginTop: '28px' }}>
+      <div class="panel-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
         <div class="panel-title">
-          <i class="fa-solid fa-calendar-days text-amber"></i>
-          <h2>AI Schedule & Google Calendar API Planner</h2>
-          <span class="badge-pill badge-amber">Read • Write • Append Operations</span>
+          <i class="fa-solid fa-calendar-days text-amber" style={{ fontSize: '1.3rem' }}></i>
+          <div>
+            <h2 style={{ fontSize: '1.35rem', margin: 0 }}>AI Schedule & Google Calendar Integration</h2>
+            <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Syncs directly with Google Calendar grid & Neon DB</span>
+          </div>
         </div>
 
-        <div class="calendar-tools" style={{ display: 'flex', gap: '8px' }}>
+        <div class="calendar-tools" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button class="btn-pill-sm" onClick={onOpenCalendarApiModal}>
-            <i class="fa-solid fa-key text-amber"></i> Config Key
+            <i class="fa-solid fa-key text-amber"></i> OAuth Credentials
           </button>
           <button class="btn-pill-sm btn-pill-accent" onClick={onReadGoogleCalendar}>
             <i class="fa-solid fa-sync"></i> Read Calendar API
           </button>
+          <a
+            href="https://calendar.google.com/calendar/u/0/r/month"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn-pill-sm"
+            style={{ background: 'rgba(59, 130, 246, 0.2)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.4)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            <i class="fa-brands fa-google"></i> Open Google Calendar App
+          </a>
         </div>
       </div>
 
@@ -66,92 +102,124 @@ export function SchedulePlanner({
             </div>
           </div>
         ) : (
-          <div class="status-banner-content banner-success">
-            <i class="fa-solid fa-calendar-check banner-icon"></i>
+          <div class="status-banner-content banner-success" style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '14px', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <i class="fa-solid fa-calendar-check banner-icon text-emerald" style={{ fontSize: '1.4rem' }}></i>
             <div>
-              <h4>Schedule Confirmed & Synced to Neon DB</h4>
-              <p>No calendar conflicts detected for your active schedule.</p>
+              <h4 style={{ color: '#10b981', margin: 0 }}>Schedule Synced to Google Calendar & Neon DB</h4>
+              <p style={{ margin: '4px 0 0 0', color: '#9ca3af', fontSize: '0.85rem' }}>No calendar conflicts detected for your active schedule.</p>
             </div>
           </div>
         )}
       </div>
 
-      <div class="calendar-workspace-grid">
-        <div class="calendar-timeline-card">
-          <h3><i class="fa-solid fa-list-ul text-cyan"></i> Active Calendar Events ({events.length})</h3>
+      <div class="calendar-workspace-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '20px' }}>
+        
+        {/* Active Events List */}
+        <div class="calendar-timeline-card" style={{ background: 'rgba(18, 24, 38, 0.85)', border: '1px solid rgba(245, 158, 11, 0.25)', borderRadius: '18px', padding: '20px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }}>
+          <h3 style={{ fontSize: '1.15rem', color: '#f3f4f6', marginTop: 0, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <i class="fa-solid fa-list-ul text-amber"></i> Active Scheduled Events ({events.length})
+          </h3>
+          
           <div class="events-list">
             {events.length === 0 ? (
-              <p class="text-muted" style={{ padding: '16px' }}>No active calendar events found.</p>
+              <p class="text-muted" style={{ padding: '16px', textAlign: 'center' }}>No active calendar events found.</p>
             ) : (
               events.map((ev) => (
-                <div class="event-card" key={ev.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', marginBottom: '10px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <div class="event-card" key={ev.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '14px', marginBottom: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
                   <div>
-                    <h4 style={{ margin: 0, color: '#f3f4f6' }}>{ev.title}</h4>
-                    <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#9ca3af' }}>
-                      <i class="fa-regular fa-clock text-cyan"></i> {ev.date} @ {ev.startTime} - {ev.endTime}
+                    <h4 style={{ margin: 0, color: '#f3f4f6', fontSize: '1.05rem' }}>{ev.title}</h4>
+                    <p style={{ margin: '6px 0 0 0', fontSize: '0.88rem', color: '#06b6d4', fontWeight: 500 }}>
+                      <i class="fa-regular fa-clock"></i> {ev.date} @ {ev.startTime} - {ev.endTime}
                     </p>
-                    {ev.attendees && ev.attendees.length > 0 && (
-                      <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#6b7280' }}>
-                        <i class="fa-solid fa-user-group"></i> {ev.attendees.join(', ')}
+                    {ev.attendees && (Array.isArray(ev.attendees) ? ev.attendees.length > 0 : ev.attendees) && (
+                      <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#9ca3af' }}>
+                        <i class="fa-solid fa-user-group text-purple"></i> {Array.isArray(ev.attendees) ? ev.attendees.join(', ') : ev.attendees}
                       </p>
                     )}
                   </div>
-                  <button class="btn-icon danger" onClick={() => onRemoveEvent(ev.id)} title="Delete Event">
-                    <i class="fa-solid fa-trash-can"></i>
-                  </button>
+
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <a
+                      href={getGoogleCalendarUrl(ev)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="btn-pill-sm"
+                      style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.4)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', padding: '6px 10px' }}
+                      title="Save to Google Calendar app"
+                    >
+                      <i class="fa-brands fa-google"></i> + Add to Google Calendar
+                    </a>
+
+                    <button class="btn-icon danger" onClick={() => onRemoveEvent(ev.id)} title="Delete Event">
+                      <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                  </div>
                 </div>
               ))
             )}
           </div>
         </div>
 
-        <div class="calendar-form-card">
-          <h3><i class="fa-solid fa-circle-plus text-emerald"></i> Schedule & Write to Google Calendar / Neon DB</h3>
-          <form class="event-form" onSubmit={handleSubmit}>
+        {/* Schedule Form */}
+        <div class="calendar-form-card" style={{ background: 'rgba(18, 24, 38, 0.85)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: '18px', padding: '20px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }}>
+          <h3 style={{ fontSize: '1.15rem', color: '#f3f4f6', marginTop: 0, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <i class="fa-solid fa-circle-plus text-emerald"></i> Schedule New Google Calendar Event
+          </h3>
+          
+          <form class="event-form" onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <div class="form-group">
-              <label>Event Title</label>
+              <label style={{ fontSize: '0.85rem', color: '#9ca3af', fontWeight: 600, marginBottom: '4px', display: 'block' }}>Event Title</label>
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Sprint Review Meeting"
+                placeholder="e.g. Sprint Review Meeting / Q3 Roadmap Sync"
+                style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '10px 14px', color: '#f3f4f6' }}
                 required
               />
             </div>
+
             <div class="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div class="form-group">
-                <label>Date</label>
+                <label style={{ fontSize: '0.85rem', color: '#9ca3af', fontWeight: 600, marginBottom: '4px', display: 'block' }}>Date</label>
                 <input
                   type="date"
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
+                  style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '10px 14px', color: '#f3f4f6' }}
                   required
                 />
               </div>
+
               <div class="form-group">
-                <label>Start Time</label>
+                <label style={{ fontSize: '0.85rem', color: '#9ca3af', fontWeight: 600, marginBottom: '4px', display: 'block' }}>Start Time</label>
                 <input
                   type="time"
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
+                  style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '10px 14px', color: '#f3f4f6' }}
                   required
                 />
               </div>
             </div>
+
             <div class="form-group">
-              <label>Attendees (Comma Separated)</label>
+              <label style={{ fontSize: '0.85rem', color: '#9ca3af', fontWeight: 600, marginBottom: '4px', display: 'block' }}>Attendees Email</label>
               <input
                 type="text"
                 value={attendees}
                 onChange={(e) => setAttendees(e.target.value)}
-                placeholder="e.g. sarah@techcorp.com, lead@techcorp.com"
+                placeholder="e.g. rajsrmap2@gmail.com, team@techcorp.com"
+                style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '10px 14px', color: '#f3f4f6' }}
               />
             </div>
-            <button type="submit" class="btn btn-accent-glow">
-              <i class="fa-solid fa-cloud-arrow-up"></i> Write Event to Google Calendar & Neon DB
+
+            <button type="submit" class="btn btn-accent-glow" style={{ width: '100%', padding: '12px', fontSize: '1rem', fontWeight: 600, marginTop: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+              <i class="fa-brands fa-google"></i> Save Event to Google Calendar & Neon DB
             </button>
           </form>
         </div>
+
       </div>
     </section>
   );
